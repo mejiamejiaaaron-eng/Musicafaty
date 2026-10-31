@@ -1,0 +1,6 @@
+{
+  "name": "JAaron Music",
+  "description": "Reproductor musical premium con soporte para archivos locales, descargas offline, Google Drive, Spotify y YouTube.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

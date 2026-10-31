@@ -1,0 +1,4971 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { type User } from '@supabase/supabase-js';
+import { supabase, SUPABASE_URL, SUPABASE_KEY } from './supabase.ts';
+import { uploadToR2 } from './r2Client';
+export { supabase, SUPABASE_URL, SUPABASE_KEY };
+import {
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  ChevronDown,
+  Volume2,
+  VolumeX,
+  Upload,
+  Trash2,
+  LogIn,
+  LogOut,
+  Music,
+  Search,
+  Lock,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  ShieldCheck,
+  Copy,
+  Check,
+  HelpCircle,
+  ExternalLink,
+  UserPlus,
+  Smartphone,
+  Rocket,
+  Globe,
+  Home,
+  Library,
+  Plus,
+  Heart,
+  MoreVertical,
+  Cast,
+  Headphones,
+  Bell,
+  Clock,
+  Battery,
+  ArrowLeft,
+  Shuffle,
+  Repeat,
+  Repeat1,
+  Download,
+  Folder,
+  Image as ImageIcon,
+  Share2,
+  FolderPlus,
+  ListMusic,
+  Sparkles,
+  RefreshCw,
+  MinusCircle,
+  FolderCheck,
+  Mic
+} from 'lucide-react';
+
+// ==========================================
+// 1. CONFIGURACIÓN Y CLIENTE SUPABASE (ver ./supabase.ts)
+// ==========================================
+
+export interface Song {
+  id: string | number;
+  titulo: string;
+  artista: string;
+  url: string;
+  storage_path: string;
+  created_at?: string | null;
+  cover?: string;
+  // Campos oficiales de la tabla 'songs' de Supabase
+  title?: string;
+  artist?: string;
+  cover_url?: string;
+  audio_url?: string;
+  folder_id?: string;
+  lyrics?: string;
+}
+
+export interface AudioFolder {
+  id: string;
+  titulo: string;
+  subtitulo: string;
+  descripcion: string;
+  coverKey: string;
+  badge?: string;
+  canciones: Song[];
+}
+
+export const carpetasAudio: AudioFolder[] = [
+  {
+    id: 'buchonass',
+    titulo: 'buchonass',
+    subtitulo: 'Corridos, Bélicos y Regional Mexicano',
+    descripcion: 'Carpeta de corridos, música bélica y regional mexicano.',
+    coverKey: 'cover_buchonass',
+    badge: 'Corridos & Regional',
+    canciones: []
+  },
+  {
+    id: 'tus_me_gusta',
+    titulo: 'Tus me gusta',
+    subtitulo: 'Tus temas favoritos y canciones en la nube',
+    descripcion: 'Carpeta personal y sincronizada en la nube.',
+    coverKey: 'cover_tus_me_gusta',
+    badge: 'Favoritos & En la Nube',
+    canciones: []
+  },
+  {
+    id: 'perreale',
+    titulo: 'Perreale',
+    subtitulo: 'Reggaetón, Urbano y Perreo',
+    descripcion: 'Carpeta de reggaetón, perreo intenso y ritmos urbanos latinos.',
+    coverKey: 'cover_perreale',
+    badge: 'Reggaetón & Perreo',
+    canciones: []
+  },
+  {
+    id: 'lob_songs',
+    titulo: 'LOB SONGS',
+    subtitulo: 'Banda, Campirano y Sierreño',
+    descripcion: 'Lo más nuevo de banda, campirano y sierreño en alta fidelidad.',
+    coverKey: 'cover_lob',
+    badge: 'Banda & Grupero',
+    canciones: []
+  },
+  {
+    id: 'los_2000',
+    titulo: "los 2000'",
+    subtitulo: 'Pop & Clásicos de los 2000s',
+    descripcion: 'Pistas nostálgicas y grandes himnos del nuevo milenio.',
+    coverKey: 'cover_2000',
+    badge: 'Pop 2000s',
+    canciones: []
+  },
+  {
+    id: 'grwm',
+    titulo: 'GRWM🍒💋⭐💍',
+    subtitulo: 'Música para arreglarte y brillar',
+    descripcion: 'Vibes aesthetic, pop femenino, R&B y beats envolventes.',
+    coverKey: 'cover_grwm',
+    badge: 'GRWM & Aesthetic',
+    canciones: []
+  },
+  {
+    id: 'baladas',
+    titulo: 'Baladas Románticas',
+    subtitulo: 'Baladas Inmortales en Español',
+    descripcion: 'Las mejores poesías cantadas y clásicos románticos.',
+    coverKey: 'cover_baladas',
+    badge: 'Baladas de Oro',
+    canciones: []
+  },
+  {
+    id: 'la_reina',
+    titulo: 'La Reina: Éxitos de la ...',
+    subtitulo: 'Selena Quintanilla y Reinas de la Música Latina',
+    descripcion: 'Homenaje a Selena y las grandes voces de la música hispana.',
+    coverKey: 'cover_reina',
+    badge: 'Tributo Legendario',
+    canciones: []
+  },
+  {
+    id: 'audiolibro',
+    titulo: 'Deja de ser tú (latino): La mente crea la real...',
+    subtitulo: 'Dr. Joe Dispenza (Audiolibro Completo)',
+    descripcion: 'Capítulos de audio para reprogramar tu mente y transformar tu realidad.',
+    coverKey: 'cover_audiolibro',
+    badge: 'Audiolibro Premium',
+    canciones: []
+  },
+  {
+    id: 'marco_antonio',
+    titulo: 'Marco Antonio Solís',
+    subtitulo: 'Franco De Vita, Chayanne y Los Bukis',
+    descripcion: 'Las mejores poesías cantadas del maestro de maestros.',
+    coverKey: 'cover_marco',
+    badge: 'Maestros de la Música',
+    canciones: []
+  },
+  {
+    id: 'mix_grupero',
+    titulo: 'Mix de grupero',
+    subtitulo: 'Eden Muñoz, Grupo Mojado, Kany García y más',
+    descripcion: 'Pistas seleccionadas con la mejor energía grupera.',
+    coverKey: 'cover_grupero',
+    badge: 'Mix Grupero',
+    canciones: []
+  }
+];
+
+export const initialDemoSongs: Song[] = [];
+
+export default function App() {
+  // Estado de autenticación
+  const [user, setUser] = useState<User | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+  const [isSignUpMode, setIsSignUpMode] = useState<boolean>(false);
+  const [email, setEmail] = useState<string>('mejiamejiaaaron@gmail.com');
+  const [password, setPassword] = useState<string>('Admin2026*');
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Navegación por pestañas y vistas funcionales
+  const [activeTab, setActiveTab] = useState<'inicio' | 'buscar' | 'biblioteca'>('inicio');
+  const [activeFilter, setActiveFilter] = useState<'inicio' | 'canciones' | 'carpetas' | 'favoritas'>('inicio');
+
+  // Estado de canciones y reproductor (solo música del usuario)
+  const [songs, setSongs] = useState<Song[]>([]);
+  const [canciones, setCanciones] = useState<Song[]>([]);
+  const [currentSong, setCurrentSong] = useState<Song | null>(null);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [duration, setDuration] = useState<number>(0);
+  const [volume, setVolume] = useState<number>(0.85);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isShuffle, setIsShuffle] = useState<boolean>(false);
+  const [repeatMode, setRepeatMode] = useState<'off' | 'all' | 'one'>('off');
+
+  // Sistema de Favoritos, Cola de Reproducción y Visualizador de Audio
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('fa_favorites_v1');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [queue, setQueue] = useState<Song[]>([]);
+  const [showQueueModal, setShowQueueModal] = useState<boolean>(false);
+  const [showExpandedPlayer, setShowExpandedPlayer] = useState<boolean>(false);
+  const [showVisualizer, setShowVisualizer] = useState<boolean>(false);
+
+  // Visualizador Animado con AudioContext y AnalyserNode
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animFrameIdRef = useRef<number | null>(null);
+
+  // Refs para subida múltiple y carpetas completas
+  const multiFileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ total: number; current: number; currentName: string } | null>(null);
+
+  // Estado de carpetas dinámicas y personalizadas (filtrando canciones de prueba)
+  const [folders, setFolders] = useState<AudioFolder[]>(() => {
+    try {
+      const saved = localStorage.getItem('fa_folders_v3');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((f: AudioFolder) => ({
+            ...f,
+            canciones: (f.canciones || []).filter(
+              (c: Song) =>
+                !String(c.id).startsWith('demo_') &&
+                !String(c.id).startsWith('buch_') &&
+                !String(c.id).startsWith('fav_') &&
+                !String(c.id).startsWith('perr_') &&
+                !String(c.id).startsWith('lob_') &&
+                !String(c.id).startsWith('los_') &&
+                !String(c.id).startsWith('grwm_') &&
+                !String(c.id).startsWith('bal_') &&
+                !String(c.id).startsWith('reina_') &&
+                !String(c.id).startsWith('audio_') &&
+                !String(c.id).startsWith('mas_') &&
+                !String(c.id).startsWith('grup_') &&
+                !String(c.url).includes('soundhelix')
+            )
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn('Error cargando carpetas guardadas:', e);
+    }
+    return carpetasAudio;
+  });
+
+  const saveFolders = (newFolders: AudioFolder[]) => {
+    setFolders(newFolders);
+    try {
+      localStorage.setItem('fa_folders_v3', JSON.stringify(newFolders));
+    } catch (e) {
+      console.warn('Error guardando carpetas:', e);
+    }
+  };
+
+  // Estado del formulario de subida y DeepSeek IA
+  const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string>('');
+  const [customTitle, setCustomTitle] = useState<string>('');
+  const [customArtist, setCustomArtist] = useState<string>('');
+  const [customCoverUrl, setCustomCoverUrl] = useState<string>('');
+  const [targetFolderId, setTargetFolderId] = useState<string>('buchonass');
+  const [isAiAnalyzing, setIsAiAnalyzing] = useState<boolean>(false);
+  const [aiIdentifiedInfo, setAiIdentifiedInfo] = useState<{
+    titulo: string;
+    artista: string;
+    genero: string;
+    fuenteIA?: string;
+  } | null>(null);
+
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadStatus, setUploadStatus] = useState<string>('');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Modales de Carpetas y Reproductor
+  const [selectedFolder, setSelectedFolder] = useState<AudioFolder | null>(null);
+  const [folderLiked, setFolderLiked] = useState<Record<string, boolean>>({});
+  const [showAddToFolderModal, setShowAddToFolderModal] = useState<boolean>(false);
+  const [songToAddToFolder, setSongToAddToFolder] = useState<Song | null>(null);
+  const [showChangeSongModal, setShowChangeSongModal] = useState<boolean>(false);
+  const [showAddMusicToCurrentFolderModal, setShowAddMusicToCurrentFolderModal] = useState<boolean>(false);
+  const [showRlsModal, setShowRlsModal] = useState<boolean>(false);
+  const [sqlCopied, setSqlCopied] = useState<boolean>(false);
+  const [showDeployModal, setShowDeployModal] = useState<boolean>(false);
+  const [showInstallGuideModal, setShowInstallGuideModal] = useState<boolean>(false);
+  const [deployTab, setDeployTab] = useState<'vercel' | 'netlify' | 'render' | 'android'>('vercel');
+  const [copiedDeployText, setCopiedDeployText] = useState<string>('');
+  const [songToDelete, setSongToDelete] = useState<Song | null>(null);
+  const [folderToDelete, setFolderToDelete] = useState<AudioFolder | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isStandalone, setIsStandalone] = useState<boolean>(false);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const coverInputRef = useRef<HTMLInputElement | null>(null);
+
+  const triggerToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4500);
+  };
+
+  // SQL exacto para crear la tabla 'songs', RLS y bucket 'musica' en Supabase
+  const rlsSql = `-- ========================================================
+-- 1. CREACIÓN DE LA TABLA 'songs' EN SUPABASE
+-- ========================================================
+CREATE TABLE IF NOT EXISTS public.songs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  title TEXT NOT NULL,
+  artist TEXT NOT NULL,
+  cover_url TEXT,
+  audio_url TEXT NOT NULL
+);
+
+-- Habilitar Seguridad a Nivel de Fila (RLS)
+ALTER TABLE public.songs ENABLE ROW LEVEL SECURITY;
+
+-- Políticas de acceso para lectura, inserción y borrado
+DROP POLICY IF EXISTS "Permitir lectura publica de songs" ON public.songs;
+CREATE POLICY "Permitir lectura publica de songs"
+ON public.songs FOR SELECT
+TO anon, authenticated
+USING (true);
+
+DROP POLICY IF EXISTS "Permitir insercion publica de songs" ON public.songs;
+CREATE POLICY "Permitir insercion publica de songs"
+ON public.songs FOR INSERT
+TO anon, authenticated
+WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir eliminacion publica de songs" ON public.songs;
+CREATE POLICY "Permitir eliminacion publica de songs"
+ON public.songs FOR DELETE
+TO anon, authenticated
+USING (true);
+
+-- Habilitar Realtime para reflejar canciones al instante
+ALTER PUBLICATION supabase_realtime ADD TABLE public.songs;
+
+-- ========================================================
+-- 2. CONFIGURACIÓN DEL BUCKET 'musica' EN STORAGE
+-- ========================================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('musica', 'musica', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+DROP POLICY IF EXISTS "Permitir lectura en bucket musica" ON storage.objects;
+CREATE POLICY "Permitir lectura en bucket musica"
+ON storage.objects FOR SELECT
+TO anon, authenticated
+USING (bucket_id = 'musica');
+
+DROP POLICY IF EXISTS "Permitir subida a bucket musica" ON storage.objects;
+CREATE POLICY "Permitir subida a bucket musica"
+ON storage.objects FOR INSERT
+TO anon, authenticated
+WITH CHECK (bucket_id = 'musica');
+
+DROP POLICY IF EXISTS "Permitir eliminar en bucket musica" ON storage.objects;
+CREATE POLICY "Permitir eliminar en bucket musica"
+ON storage.objects FOR DELETE
+TO anon, authenticated
+USING (bucket_id = 'musica');`;
+
+  const copyRlsSql = () => {
+    navigator.clipboard.writeText(rlsSql);
+    setSqlCopied(true);
+    triggerToast('¡SQL copiado al portapapeles!', 'success');
+    setTimeout(() => setSqlCopied(false), 3000);
+  };
+
+  const copyText = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedDeployText(label);
+    triggerToast(`¡${label} copiado al portapapeles!`, 'success');
+    setTimeout(() => setCopiedDeployText(''), 2500);
+  };
+
+  // ==========================================
+  // INICIALIZACIÓN: SESIÓN & CARGAR CANCIONES
+  // ==========================================
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    cargarCanciones();
+
+    const channel = supabase
+      .channel('songs-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'songs' }, () => {
+        cargarCanciones();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'canciones' }, () => {
+        cargarCanciones();
+      })
+      .subscribe();
+
+    const checkStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true;
+    setIsStandalone(checkStandalone);
+
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey && (e.key === 's' || e.key === 'u' || e.key === 'p')) || e.key === 'F12') {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      authListener.subscription.unsubscribe();
+      supabase.removeChannel(channel);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    };
+  }, []);
+
+  const handleInstallPWA = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        triggerToast('¡FINANCIERA AARON se ha instalado en tu pantalla de inicio!', 'success');
+        setDeferredPrompt(null);
+      }
+    } else {
+      setDeployTab('android');
+      setShowDeployModal(true);
+    }
+  };
+
+  // Registro persistente de metadatos de canciones subidas a Supabase Storage y Letras
+  const STORAGE_META_KEY = 'fa_storage_metadata_v2';
+  const FA_LYRICS_STORAGE_KEY = 'fa_song_lyrics_v1';
+
+  const obtenerTodasLasLetrasPersistentes = (): Record<string, string> => {
+    try {
+      const raw = localStorage.getItem(FA_LYRICS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const guardarLetraPersistente = (
+    songId?: string | number,
+    storagePath?: string,
+    title?: string,
+    artist?: string,
+    lyrics?: string
+  ) => {
+    if (!lyrics || typeof lyrics !== 'string' || !lyrics.trim()) {
+      // REGLA CRÍTICA: No reemplazar letras existentes por textos vacíos
+      return;
+    }
+    const cleanLyrics = lyrics.trim();
+    try {
+      const store = obtenerTodasLasLetrasPersistentes();
+      if (songId) store[String(songId)] = cleanLyrics;
+      if (storagePath) store[String(storagePath)] = cleanLyrics;
+      if (title && artist) {
+        const slug = `${title.toLowerCase().trim()}___${artist.toLowerCase().trim()}`;
+        store[slug] = cleanLyrics;
+      }
+      localStorage.setItem(FA_LYRICS_STORAGE_KEY, JSON.stringify(store));
+    } catch (err) {
+      console.warn('Error guardando letra en almacenamiento persistente:', err);
+    }
+  };
+
+  const obtenerLetraPersistente = (
+    songId?: string | number,
+    storagePath?: string,
+    title?: string,
+    artist?: string
+  ): string | undefined => {
+    try {
+      const store = obtenerTodasLasLetrasPersistentes();
+      if (songId && store[String(songId)]) return store[String(songId)];
+      if (storagePath && store[String(storagePath)]) return store[String(storagePath)];
+      if (title && artist) {
+        const slug = `${title.toLowerCase().trim()}___${artist.toLowerCase().trim()}`;
+        if (store[slug]) return store[slug];
+      }
+      if (storagePath) {
+        const meta = obtenerMetadatosLocales();
+        if (meta[storagePath]?.lyrics) return meta[storagePath].lyrics;
+      }
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  };
+
+  // Función de reproducción aleatoria instantánea para botones funcionales
+  const reproducirAleatorio = () => {
+    const lista = songs.length > 0 ? songs : canciones;
+    if (lista.length === 0) {
+      triggerToast('No hay canciones disponibles para reproducir aún', 'error');
+      return;
+    }
+    const randomIndex = Math.floor(Math.random() * lista.length);
+    const randomSong = lista[randomIndex];
+    setIsShuffle(true);
+    reproducirCancionDirecta(randomSong);
+    triggerToast(`🔀 Modo aleatorio: "${randomSong.title || randomSong.titulo}"`, 'success');
+  };
+
+  const obtenerMetadatosLocales = (): Record<string, {
+    titulo: string;
+    artista: string;
+    cover?: string;
+    folderId?: string;
+    url?: string;
+    created_at?: string;
+    lyrics?: string;
+  }> => {
+    try {
+      const raw = localStorage.getItem(STORAGE_META_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const guardarMetadatoCancion = (
+    storagePath: string,
+    meta: {
+      titulo: string;
+      artista: string;
+      cover?: string;
+      folderId?: string;
+      url?: string;
+      created_at?: string;
+      lyrics?: string;
+    }
+  ) => {
+    try {
+      const todos = obtenerMetadatosLocales();
+      const previo = todos[storagePath] || {};
+      todos[storagePath] = {
+        ...previo,
+        ...meta,
+        lyrics: meta.lyrics || previo.lyrics // Preservar letra si la nueva es undefined
+      };
+      localStorage.setItem(STORAGE_META_KEY, JSON.stringify(todos));
+      if (meta.lyrics) {
+        guardarLetraPersistente(undefined, storagePath, meta.titulo, meta.artista, meta.lyrics);
+      }
+    } catch (e) {
+      console.warn('Error guardando metadato local:', e);
+    }
+  };
+
+  const cargarCanciones = async (esReintento = false) => {
+    try {
+      const { data: dbSongs, error: dbError } = await supabase
+        .from('songs')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      console.log('dbSongs:', dbSongs);
+
+      if (dbError) {
+        console.warn('Aviso al cargar canciones desde Supabase:', dbError.message || dbError);
+        // Si el schema cache de PostgREST aún se estaba actualizando (PGRST125), reintentar una vez tras breve pausa
+        if (!esReintento && (dbError.code === 'PGRST125' || dbError.message?.includes('Invalid path'))) {
+          setTimeout(() => {
+            cargarCanciones(true);
+          }, 1000);
+          return;
+        }
+        return;
+      }
+
+      if (dbSongs) {
+        // Normalizar los datos garantizando las propiedades title, artist, cover_url y audio_url
+        const cancionesBD: Song[] = dbSongs.map((row: any) => {
+          const cachedLyrics = obtenerLetraPersistente(row.id, row.audio_url, row.title, row.artist);
+          return {
+            id: row.id,
+            title: row.title || 'Sin título',
+            artist: row.artist || 'Artista',
+            cover_url: row.cover_url || '',
+            audio_url: row.audio_url || '',
+            titulo: row.title || 'Sin título',
+            artista: row.artist || 'Artista',
+            cover: row.cover_url || 'cover_23',
+            url: row.audio_url || '',
+            storage_path: row.audio_url || '',
+            created_at: row.created_at,
+            lyrics: cachedLyrics || undefined
+          };
+        });
+
+        setSongs(cancionesBD);
+        setCanciones(cancionesBD);
+
+        // Si hay canciones en la base de datos y aún no hay una seleccionada por el usuario
+        if (cancionesBD.length > 0 && !currentSong) {
+          setCurrentSong(cancionesBD[0]);
+        }
+
+        // Sincronizar canciones en las carpetas (especialmente 'tus_me_gusta')
+        if (cancionesBD.length > 0) {
+          setFolders((prevFolders) => {
+            let huboCambio = false;
+            const updated = prevFolders.map((f) => {
+              const nuevasParaCarpeta: Song[] = [];
+              for (const c of cancionesBD) {
+                const pertenece = (f.id === 'tus_me_gusta');
+                const yaEsta = f.canciones.some((existente) =>
+                  String(existente.id) === String(c.id) ||
+                  (existente.url && c.url && existente.url === c.url) ||
+                  ((existente.title || existente.titulo).toLowerCase() === (c.title || c.titulo).toLowerCase() &&
+                   (existente.artist || existente.artista).toLowerCase() === (c.artist || c.artista).toLowerCase())
+                );
+
+                if (pertenece && !yaEsta) {
+                  nuevasParaCarpeta.push(c);
+                  huboCambio = true;
+                }
+              }
+
+              if (nuevasParaCarpeta.length > 0) {
+                return {
+                  ...f,
+                  canciones: [...nuevasParaCarpeta, ...f.canciones]
+                };
+              }
+              return f;
+            });
+
+            if (huboCambio) {
+              try {
+                localStorage.setItem('fa_folders_v3', JSON.stringify(updated));
+              } catch (e) {}
+              return updated;
+            }
+            return prevFolders;
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error inesperado al cargar canciones:', err);
+    }
+  };
+
+  // ==========================================
+  // AUTENTICACIÓN
+  // ==========================================
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
+    setAuthError(null);
+
+    const cleanEmail = email.trim();
+    const cleanPassword = password.trim();
+
+    if (!cleanEmail || !cleanPassword) {
+      setAuthError('Por favor ingresa un correo y contraseña válidos.');
+      setIsLoggingIn(false);
+      return;
+    }
+
+    try {
+      if (isSignUpMode) {
+        const { data, error } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: cleanPassword
+        });
+        if (error) {
+          setAuthError(error.message);
+          triggerToast(`Error al registrar: ${error.message}`, 'error');
+          return;
+        }
+        if (data?.user) {
+          setUser(data.user);
+          setShowLoginModal(false);
+          triggerToast(`¡Usuario conectado: ${data.user.email}!`, 'success');
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: cleanPassword
+        });
+
+        if (error) {
+          setAuthError(error.message);
+          triggerToast(`Error de login: ${error.message}`, 'error');
+          return;
+        }
+
+        if (data?.user) {
+          setUser(data.user);
+          setShowLoginModal(false);
+          triggerToast(`¡Bienvenido, ${data.user.email}!`, 'success');
+        }
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setAuthError(errMsg);
+      triggerToast(`Error: ${errMsg}`, 'error');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    triggerToast('Sesión cerrada correctamente', 'success');
+  };
+
+  // ==========================================
+  // DEEPSEEK & GEMINI IA: ANÁLISIS DE AUDIO & FOTO RELACIONADA
+  // ==========================================
+
+  // ==========================================
+  // EXTRACCIÓN DE METADATOS VÍA JSMEDIATAGS (CDN) + ID3 USLT / SYLT + PORTADAS EMBEBIDAS
+  // ==========================================
+  const extractAudioMetadataFromFile = async (
+    file: File
+  ): Promise<{ title?: string; artist?: string; coverUrl?: string; lyrics?: string }> => {
+    let extractedLyrics: string | undefined = undefined;
+
+    // 1. Intentar con jsmediatags (vía CDN cargado en index.html) para título, artista, carátula y letras USLT/SYLT
+    try {
+      const jsmediatags = (window as any).jsmediatags;
+      if (jsmediatags && typeof jsmediatags.read === 'function') {
+        const jmtData = await new Promise<{ title?: string; artist?: string; coverUrl?: string; lyrics?: string }>((resolve) => {
+          jsmediatags.read(file, {
+            onSuccess: (tag: any) => {
+              const tags = tag?.tags || {};
+              const title = tags.title ? String(tags.title).trim() : undefined;
+              const artist = tags.artist ? String(tags.artist).trim() : undefined;
+              let coverUrl: string | undefined = undefined;
+              let lyrics: string | undefined = undefined;
+
+              // Extracción de etiquetas USLT (Unsynchronized lyrics) y SYLT (Synchronized lyrics)
+              const uslt = tags.USLT || tags['USLT'];
+              if (uslt) {
+                if (typeof uslt === 'string' && uslt.trim()) lyrics = uslt.trim();
+                else if (uslt.data?.lyrics && typeof uslt.data.lyrics === 'string') lyrics = uslt.data.lyrics.trim();
+                else if (uslt.lyrics && typeof uslt.lyrics === 'string') lyrics = uslt.lyrics.trim();
+                else if (typeof uslt.data === 'string' && uslt.data.trim()) lyrics = uslt.data.trim();
+              }
+
+              if (!lyrics) {
+                const sylt = tags.SYLT || tags['SYLT'];
+                if (sylt) {
+                  if (typeof sylt === 'string' && sylt.trim()) lyrics = sylt.trim();
+                  else if (sylt.data?.lyrics && typeof sylt.data.lyrics === 'string') lyrics = sylt.data.lyrics.trim();
+                  else if (sylt.lyrics && typeof sylt.lyrics === 'string') lyrics = sylt.lyrics.trim();
+                  else if (Array.isArray(sylt.data)) {
+                    const parts = sylt.data.map((item: any) => item?.text || item?.lyric || '').filter(Boolean);
+                    if (parts.length > 0) lyrics = parts.join('\n');
+                  }
+                }
+              }
+
+              if (!lyrics && tags.lyrics) {
+                if (typeof tags.lyrics === 'string' && tags.lyrics.trim()) lyrics = tags.lyrics.trim();
+                else if (tags.lyrics.data?.lyrics && typeof tags.lyrics.data.lyrics === 'string') lyrics = tags.lyrics.data.lyrics.trim();
+                else if (typeof tags.lyrics.data === 'string' && tags.lyrics.data.trim()) lyrics = tags.lyrics.data.trim();
+              }
+
+              if (!lyrics) {
+                for (const k of Object.keys(tags)) {
+                  const upper = k.toUpperCase();
+                  if (upper.includes('USLT') || upper.includes('SYLT') || k.toLowerCase().includes('lyrics')) {
+                    const val = tags[k];
+                    if (typeof val === 'string' && val.trim()) {
+                      lyrics = val.trim();
+                      break;
+                    } else if (val?.data?.lyrics && typeof val.data.lyrics === 'string') {
+                      lyrics = val.data.lyrics.trim();
+                      break;
+                    } else if (val?.lyrics && typeof val.lyrics === 'string') {
+                      lyrics = val.lyrics.trim();
+                      break;
+                    }
+                  }
+                }
+              }
+
+              if (tags.picture) {
+                try {
+                  const { data, format } = tags.picture;
+                  let base64String = '';
+                  for (let i = 0; i < data.length; i++) {
+                    base64String += String.fromCharCode(data[i]);
+                  }
+                  coverUrl = `data:${format || 'image/jpeg'};base64,${window.btoa(base64String)}`;
+                } catch (picErr) {
+                  console.warn('Nota convirtiendo imagen de jsmediatags:', picErr);
+                }
+              }
+
+              resolve({ title, artist, coverUrl, lyrics });
+            },
+            onError: (err: any) => {
+              console.warn('Nota jsmediatags:', err);
+              resolve({});
+            }
+          });
+        });
+
+        if (jmtData.lyrics) extractedLyrics = jmtData.lyrics;
+
+        if (jmtData.title || jmtData.artist || jmtData.coverUrl || jmtData.lyrics) {
+          const fast = parseSmartAudioName(file.name);
+          return {
+            title: jmtData.title || fast.titulo || file.name.replace(/\.[^/.]+$/, '').trim(),
+            artist: jmtData.artist || fast.artista || 'Artista',
+            coverUrl: jmtData.coverUrl,
+            lyrics: jmtData.lyrics
+          };
+        }
+      }
+    } catch (jmtErr) {
+      console.warn('Error en lectura jsmediatags:', jmtErr);
+    }
+
+    // 2. Fallback de escaneo binario ID3 (v2 y v1) si jsmediatags no devolvió información completa
+    try {
+      let scanSize = Math.min(file.size, 512 * 1024);
+      const headBuf = await file.slice(0, 10).arrayBuffer();
+      const headBytes = new Uint8Array(headBuf);
+      let majorVersion = 3;
+      if (headBytes[0] === 0x49 && headBytes[1] === 0x44 && headBytes[2] === 0x33) {
+        majorVersion = headBytes[3];
+        const synchsafeTagSize =
+          ((headBytes[6] & 0x7f) << 21) |
+          ((headBytes[7] & 0x7f) << 14) |
+          ((headBytes[8] & 0x7f) << 7) |
+          (headBytes[9] & 0x7f);
+        scanSize = Math.min(file.size, synchsafeTagSize + 20);
+      }
+
+      const buffer = await file.slice(0, scanSize).arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let title: string | undefined;
+      let artist: string | undefined;
+      let lyrics: string | undefined = extractedLyrics;
+
+      if (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) { // 'ID3'
+        const textDecoder = new TextDecoder('utf-8');
+        const isoDecoder = new TextDecoder('iso-8859-1');
+        let offset = 10;
+        while (offset < bytes.length - 10) {
+          const frameId = String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
+          if (!/^[A-Z0-9]{4}$/.test(frameId)) break;
+
+          let frameSize = 0;
+          if (majorVersion === 4) {
+            frameSize =
+              ((bytes[offset + 4] & 0x7f) << 21) |
+              ((bytes[offset + 5] & 0x7f) << 14) |
+              ((bytes[offset + 6] & 0x7f) << 7) |
+              (bytes[offset + 7] & 0x7f);
+          } else {
+            frameSize =
+              (bytes[offset + 4] << 24) | (bytes[offset + 5] << 16) | (bytes[offset + 6] << 8) | bytes[offset + 7];
+          }
+
+          if (frameSize <= 0 || offset + 10 + frameSize > bytes.length) break;
+
+          const contentBytes = bytes.slice(offset + 10, offset + 10 + frameSize);
+
+          if (frameId === 'TIT2' && !title) {
+            try {
+              const enc = contentBytes[0];
+              const tSlice = contentBytes.slice(1);
+              const val = (enc === 1 || enc === 2 ? new TextDecoder('utf-16').decode(tSlice) : enc === 3 ? textDecoder.decode(tSlice) : isoDecoder.decode(tSlice)).replace(/\0/g, '').trim();
+              if (val) title = val;
+            } catch (_) {}
+          }
+
+          if (frameId === 'TPE1' && !artist) {
+            try {
+              const enc = contentBytes[0];
+              const tSlice = contentBytes.slice(1);
+              const val = (enc === 1 || enc === 2 ? new TextDecoder('utf-16').decode(tSlice) : enc === 3 ? textDecoder.decode(tSlice) : isoDecoder.decode(tSlice)).replace(/\0/g, '').trim();
+              if (val) artist = val;
+            } catch (_) {}
+          }
+
+          // Extracción binaria de USLT (Unsynchronized lyrics)
+          if (frameId === 'USLT' && !lyrics && contentBytes.length > 5) {
+            try {
+              const enc = contentBytes[0];
+              let descOffset = 4;
+              if (enc === 1 || enc === 2) {
+                while (descOffset < contentBytes.length - 1) {
+                  if (contentBytes[descOffset] === 0 && contentBytes[descOffset + 1] === 0) {
+                    descOffset += 2;
+                    break;
+                  }
+                  descOffset += 2;
+                }
+              } else {
+                while (descOffset < contentBytes.length) {
+                  if (contentBytes[descOffset] === 0) {
+                    descOffset += 1;
+                    break;
+                  }
+                  descOffset += 1;
+                }
+              }
+              const lBytes = contentBytes.slice(descOffset);
+              let val = '';
+              if (enc === 1 || enc === 2) {
+                val = new TextDecoder('utf-16').decode(lBytes);
+              } else if (enc === 3) {
+                val = textDecoder.decode(lBytes);
+              } else {
+                val = isoDecoder.decode(lBytes);
+              }
+              val = val.replace(/\0+$/g, '').replace(/^\0+/g, '').trim();
+              if (val) lyrics = val;
+            } catch (usltErr) {
+              console.warn('Nota parseando USLT:', usltErr);
+            }
+          }
+
+          // Extracción binaria de SYLT (Synchronized lyrics)
+          if (frameId === 'SYLT' && !lyrics && contentBytes.length > 6) {
+            try {
+              const enc = contentBytes[0];
+              let descOffset = 6;
+              if (enc === 1 || enc === 2) {
+                while (descOffset < contentBytes.length - 1) {
+                  if (contentBytes[descOffset] === 0 && contentBytes[descOffset + 1] === 0) {
+                    descOffset += 2;
+                    break;
+                  }
+                  descOffset += 2;
+                }
+              } else {
+                while (descOffset < contentBytes.length) {
+                  if (contentBytes[descOffset] === 0) {
+                    descOffset += 1;
+                    break;
+                  }
+                  descOffset += 1;
+                }
+              }
+              const syltBytes = contentBytes.slice(descOffset);
+              const lines: string[] = [];
+              let p = 0;
+              while (p < syltBytes.length) {
+                const s = p;
+                if (enc === 1 || enc === 2) {
+                  while (p < syltBytes.length - 1 && !(syltBytes[p] === 0 && syltBytes[p + 1] === 0)) {
+                    p += 2;
+                  }
+                  const t = new TextDecoder('utf-16').decode(syltBytes.slice(s, p)).replace(/\0/g, '').trim();
+                  if (t) lines.push(t);
+                  p += 2;
+                } else {
+                  while (p < syltBytes.length && syltBytes[p] !== 0) {
+                    p++;
+                  }
+                  const t = (enc === 3 ? textDecoder : isoDecoder).decode(syltBytes.slice(s, p)).replace(/\0/g, '').trim();
+                  if (t) lines.push(t);
+                  p++;
+                }
+                p += 4;
+              }
+              if (lines.length > 0) lyrics = lines.join('\n');
+            } catch (syltErr) {
+              console.warn('Nota parseando SYLT:', syltErr);
+            }
+          }
+
+          offset += 10 + frameSize;
+        }
+      }
+
+      // Escanear ID3v1 (últimos 128 bytes) si faltó título o artista
+      if ((!title || !artist) && file.size > 128) {
+        const endBuffer = await file.slice(file.size - 128).arrayBuffer();
+        const endBytes = new Uint8Array(endBuffer);
+        if (endBytes[0] === 0x54 && endBytes[1] === 0x41 && endBytes[2] === 0x47) { // 'TAG'
+          const dec = new TextDecoder('iso-8859-1');
+          if (!title) {
+            const rawT = dec.decode(endBytes.slice(3, 33)).replace(/\0/g, '').trim();
+            if (rawT) title = rawT;
+          }
+          if (!artist) {
+            const rawA = dec.decode(endBytes.slice(33, 63)).replace(/\0/g, '').trim();
+            if (rawA) artist = rawA;
+          }
+        }
+      }
+
+      if (title || artist || lyrics) {
+        const fast = parseSmartAudioName(file.name);
+        return {
+          title: title || fast.titulo || file.name.replace(/\.[^/.]+$/, '').trim(),
+          artist: artist || fast.artista || 'Artista',
+          lyrics
+        };
+      }
+    } catch (e) {
+      // Fallback
+    }
+
+    // 3. Respaldo por nombre de archivo
+    const fast = parseSmartAudioName(file.name);
+    return {
+      title: fast.titulo || file.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' ').trim(),
+      artist: fast.artista || 'Artista',
+      lyrics: extractedLyrics
+    };
+  };
+
+  // Limpieza y deducción inteligente instantánea desde el nombre del archivo
+  const parseSmartAudioName = (
+    rawName: string
+  ): { titulo: string; artista: string; sugerenciaCarpeta: string } => {
+    let clean = rawName.replace(/\.(mp3|wav|m4a|aac|flac|ogg)$/i, '');
+    clean = clean.replace(/^\s*(?:\d+[\s._-]+)+/, '');
+    clean = clean
+      .replace(
+        /\b(official\s+video|video\s+oficial|official\s+audio|audio\s+oficial|video\s+lyric|letra|lyrics|en\s+vivo|live|remix|hd|4k|1080p|hq|320kbps|128kbps|y2mate(?:\.is)?|mp3clan|snaptube|full\s+audio)\b/gi,
+        ''
+      )
+      .replace(/[\[\(\{]\s*[\]\)\}]/g, '')
+      .replace(/[_]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    let artista = 'Artista';
+    let titulo = clean;
+    let carpeta = 'tus_me_gusta';
+
+    const conocidos = [
+      { n: ['peso pluma', 'doble p'], art: 'Peso Pluma', f: 'buchonass' },
+      { n: ['natanael cano', 'nata'], art: 'Natanael Cano', f: 'buchonass' },
+      { n: ['junior h'], art: 'Junior H', f: 'buchonass' },
+      { n: ['fuerza regida'], art: 'Fuerza Regida', f: 'buchonass' },
+      { n: ['el fantasma'], art: 'El Fantasma', f: 'buchonass' },
+      { n: ['los dos carnales'], art: 'Los Dos Carnales', f: 'buchonass' },
+      { n: ['luis r conriquez'], art: 'Luis R Conriquez', f: 'buchonass' },
+      { n: ['calibre 50'], art: 'Calibre 50', f: 'buchonass' },
+      { n: ['bad bunny'], art: 'Bad Bunny', f: 'perreale' },
+      { n: ['feid', 'ferxxo'], art: 'Feid', f: 'perreale' },
+      { n: ['karol g'], art: 'Karol G', f: 'perreale' },
+      { n: ['anuel'], art: 'Anuel AA', f: 'perreale' },
+      { n: ['grupo firme'], art: 'Grupo Firme', f: 'lob_songs' },
+      { n: ['carin leon'], art: 'Carin Leon', f: 'lob_songs' },
+      { n: ['grupo frontera'], art: 'Grupo Frontera', f: 'lob_songs' },
+      { n: ['banda ms'], art: 'Banda MS', f: 'lob_songs' },
+      { n: ['luis miguel'], art: 'Luis Miguel', f: 'baladas' },
+      { n: ['chayanne'], art: 'Chayanne', f: 'baladas' },
+      { n: ['selena'], art: 'Selena', f: 'la_reina' }
+    ];
+
+    const lower = clean.toLowerCase();
+    const match = conocidos.find((c) => c.n.some((name) => lower.includes(name)));
+    if (match) {
+      artista = match.art;
+      carpeta = match.f;
+      let t = clean;
+      for (const name of match.n) {
+        t = t.replace(new RegExp(name, 'gi'), '');
+      }
+      t = t.replace(/^[\s\-_—–:]+|[\s\-_—–:]+$/g, '').trim();
+      if (t.length > 2) titulo = t;
+    } else if (clean.includes(' - ')) {
+      const parts = clean.split(' - ');
+      artista = parts[0].trim();
+      titulo = parts.slice(1).join(' - ').trim();
+    } else if (clean.includes(' — ')) {
+      const parts = clean.split(' — ');
+      artista = parts[0].trim();
+      titulo = parts.slice(1).join(' — ').trim();
+    } else if (clean.toLowerCase().includes(' by ')) {
+      const parts = clean.split(/ by /i);
+      titulo = parts[0].trim();
+      artista = parts[1].trim();
+    }
+
+    const cap = (s: string) =>
+      s
+        .split(' ')
+        .map((w) => (w.length > 0 ? w[0].toUpperCase() + w.slice(1) : ''))
+        .join(' ');
+    if (titulo === titulo.toLowerCase()) titulo = cap(titulo);
+    if (artista === artista.toLowerCase()) artista = cap(artista);
+
+    return { titulo: titulo || 'Canción', artista: artista || 'Artista', sugerenciaCarpeta: carpeta };
+  };
+
+  const analizarAudioConIA = async (
+    file: File,
+    hintTitle?: string,
+    hintArtist?: string
+  ): Promise<{
+    titulo: string;
+    artista: string;
+    genero: string;
+    sugerenciaCarpeta: string;
+    coverUrl: string;
+    fuenteIA: string;
+  } | null> => {
+    setIsAiAnalyzing(true);
+    try {
+      const res = await fetch('/api/ai/tag-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          folderId: targetFolderId || selectedFolder?.id,
+          id3Title: hintTitle || customTitle,
+          id3Artist: hintArtist || customArtist
+        })
+      });
+      const json = await res.json();
+      if (json.success && json.data) {
+        const d = json.data;
+        if (d.titulo) setCustomTitle(d.titulo);
+        if (d.artista) setCustomArtist(d.artista);
+        if (d.coverUrl) setCustomCoverUrl(d.coverUrl);
+        if (d.sugerenciaCarpeta) setTargetFolderId(d.sugerenciaCarpeta);
+
+        setAiIdentifiedInfo({
+          titulo: d.titulo,
+          artista: d.artista,
+          genero: d.genero,
+          fuenteIA: d.fuenteIA || 'DeepSeek / Gemini IA'
+        });
+        triggerToast(`✨ IA identificó: "${d.artista} - ${d.titulo}" • Portada generada`, 'success');
+        return d;
+      }
+    } catch (err) {
+      console.warn('Error en análisis IA:', err);
+    } finally {
+      setIsAiAnalyzing(false);
+    }
+    return null;
+  };
+
+  const regenerarFotoIA = () => {
+    const seed = Math.floor(Math.random() * 999999);
+    const prompt = encodeURIComponent(
+      `${customArtist || 'Music Artist'} ${customTitle || 'Song'} stylish album art cover aesthetic vinyl masterpiece 4k`
+    );
+    const newCover = `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${seed}`;
+    setCustomCoverUrl(newCover);
+    triggerToast('¡Nueva portada generada con IA!', 'success');
+  };
+
+  // ==========================================
+  // GESTIÓN DE CARPETAS (AGREGAR, QUITAR Y ELIMINAR)
+  // ==========================================
+  const agregarCancionACarpeta = (folderId: string, song: Song) => {
+    const target = folders.find((f) => f.id === folderId);
+    if (!target) return;
+
+    const yaExiste = target.canciones.some(
+      (c) => String(c.id) === String(song.id) || (c.titulo.toLowerCase() === song.titulo.toLowerCase() && c.artista.toLowerCase() === song.artista.toLowerCase())
+    );
+
+    if (yaExiste) {
+      triggerToast(`"${song.titulo}" ya existe en "${target.titulo}"`, 'error');
+      return;
+    }
+
+    const updated = folders.map((f) => {
+      if (f.id === folderId) {
+        return {
+          ...f,
+          canciones: [song, ...f.canciones]
+        };
+      }
+      return f;
+    });
+
+    saveFolders(updated);
+    if (selectedFolder && selectedFolder.id === folderId) {
+      setSelectedFolder(updated.find((f) => f.id === folderId) || null);
+    }
+    triggerToast(`¡"${song.titulo}" agregada a "${target.titulo}"!`, 'success');
+    setShowAddToFolderModal(false);
+  };
+
+  const quitarCancionDeCarpeta = (folderId: string, songId: string | number, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const folder = folders.find((f) => f.id === folderId);
+    const songName = folder?.canciones.find((c) => String(c.id) === String(songId))?.titulo || 'Canción';
+
+    const updated = folders.map((f) => {
+      if (f.id === folderId) {
+        return {
+          ...f,
+          canciones: f.canciones.filter((c) => String(c.id) !== String(songId))
+        };
+      }
+      return f;
+    });
+
+    saveFolders(updated);
+    if (selectedFolder && selectedFolder.id === folderId) {
+      setSelectedFolder(updated.find((f) => f.id === folderId) || null);
+    }
+    triggerToast(`"${songName}" quitada de la carpeta "${folder?.titulo || ''}"`, 'success');
+  };
+
+  const solicitarEliminarCancion = (song: Song, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSongToDelete(song);
+  };
+
+  const eliminarCancion = (song: Song, e?: React.MouseEvent) => {
+    solicitarEliminarCancion(song, e);
+  };
+
+  const confirmarEliminarCancion = async () => {
+    if (!songToDelete) return;
+    const song = songToDelete;
+    setSongToDelete(null);
+
+    // Quitar de todas las carpetas
+    const updatedFolders = folders.map((f) => ({
+      ...f,
+      canciones: f.canciones.filter((c) => String(c.id) !== String(song.id))
+    }));
+    saveFolders(updatedFolders);
+    if (selectedFolder) {
+      setSelectedFolder(updatedFolders.find((f) => f.id === selectedFolder.id) || null);
+    }
+
+    setSongs((prev) => prev.filter((item) => String(item.id) !== String(song.id)));
+    setCanciones((prev) => prev.filter((item) => String(item.id) !== String(song.id)));
+    if (currentSong?.id === song.id) {
+      setCurrentSong(initialDemoSongs[0]);
+      setIsPlaying(false);
+    }
+
+    try {
+      if (song.storage_path) {
+        await supabase.storage.from('musica').remove([song.storage_path]);
+        try {
+          const metadatos = obtenerMetadatosLocales();
+          delete metadatos[song.storage_path];
+          localStorage.setItem(STORAGE_META_KEY, JSON.stringify(metadatos));
+        } catch (mErr) {}
+      }
+      if (!String(song.id).startsWith('local_')) {
+        await supabase.from('songs').delete().eq('id', song.id);
+        await supabase.from('canciones').delete().eq('id', song.id);
+      }
+    } catch (err: unknown) {
+      console.warn('Nota al eliminar de Supabase:', err);
+    }
+    triggerToast(`"${song.titulo}" ha sido eliminada permanentemente.`, 'success');
+  };
+
+  const solicitarEliminarCarpeta = (folder: AudioFolder, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setFolderToDelete(folder);
+  };
+
+  const confirmarEliminarCarpeta = () => {
+    if (!folderToDelete) return;
+    const fId = folderToDelete.id;
+    const fName = folderToDelete.titulo;
+    setFolderToDelete(null);
+
+    const updated = folders.filter((f) => f.id !== fId);
+    saveFolders(updated);
+    if (selectedFolder?.id === fId) {
+      setSelectedFolder(null);
+    }
+    triggerToast(`Carpeta "${fName}" eliminada exitosamente.`, 'success');
+  };
+
+  // ==========================================
+  // SUBIDA AL STORAGE SUPABASE CON DEEPSEEK & GEMINI IA
+  // ==========================================
+  async function subirCancion(file: File) {
+    if (!file) {
+      alert('Por favor selecciona un archivo de audio MP3.');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadStatus('✨ IA reconociendo título y artista musical...');
+
+    let songTitle = customTitle.trim();
+    let songArtist = customArtist.trim();
+    let finalCover = (coverPreviewUrl || customCoverUrl || '').trim();
+
+    let fileLyrics: string | undefined = undefined;
+
+    // 1. Si el usuario sube directamente o aún no ha terminado el análisis de la IA:
+    if (!songTitle || !songArtist || songArtist.toLowerCase() === 'desconocido' || isAiAnalyzing) {
+      try {
+        const id3 = await extractAudioMetadataFromFile(file);
+        if (id3.lyrics) fileLyrics = id3.lyrics;
+        const fast = parseSmartAudioName(file.name);
+        const aiData = await analizarAudioConIA(file, id3.title || fast.titulo, id3.artist || fast.artista);
+
+        if (aiData) {
+          if (!songTitle || songTitle === file.name) songTitle = aiData.titulo;
+          if (!songArtist || songArtist.toLowerCase() === 'desconocido') songArtist = aiData.artista;
+          if (!finalCover) finalCover = aiData.coverUrl || '';
+          if (aiData.sugerenciaCarpeta && (!targetFolderId || targetFolderId === 'buchonass')) {
+            setTargetFolderId(aiData.sugerenciaCarpeta);
+          }
+        }
+      } catch (aiErr) {
+        console.warn('Nota en análisis de IA durante subida:', aiErr);
+      }
+    }
+
+    if (!fileLyrics) {
+      try {
+        const meta = await extractAudioMetadataFromFile(file);
+        if (meta.lyrics) fileLyrics = meta.lyrics;
+      } catch (_) {}
+    }
+
+    // 2. Respaldo inteligente si la IA o la red no respondieron: nunca dejar "Desconocido"
+    if (!songTitle || !songArtist || songArtist.toLowerCase() === 'desconocido') {
+      const fast = parseSmartAudioName(file.name);
+      if (!songTitle) songTitle = fast.titulo;
+      if (!songArtist || songArtist.toLowerCase() === 'desconocido') songArtist = fast.artista;
+      if (!targetFolderId && fast.sugerenciaCarpeta) setTargetFolderId(fast.sugerenciaCarpeta);
+    }
+
+    if (!songTitle) songTitle = file.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' ');
+    if (!songArtist || songArtist.toLowerCase() === 'desconocido') songArtist = 'Artista';
+
+    // 3. Subir imagen de portada al bucket 'musica' si el usuario seleccionó un archivo de imagen
+    if (coverFile) {
+      try {
+        setUploadStatus('Subiendo imagen de portada a Supabase Storage...');
+        const sanitizedCover = coverFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const coverPath = `covers/${Date.now()}_${sanitizedCover}`;
+        const { error: coverErr } = await supabase.storage
+          .from('musica')
+          .upload(coverPath, coverFile, {
+            cacheControl: '3600',
+            upsert: true,
+            contentType: coverFile.type || 'image/jpeg'
+          });
+
+        if (!coverErr) {
+          const { data: cUrlData } = supabase.storage.from('musica').getPublicUrl(coverPath);
+          if (cUrlData?.publicUrl) {
+            finalCover = cUrlData.publicUrl;
+          }
+        } else {
+          console.warn('Nota al subir imagen de portada:', coverErr.message);
+        }
+      } catch (cErr) {
+        console.warn('Error subiendo imagen de portada:', cErr);
+      }
+    }
+
+    if (!finalCover) {
+      const promptClean = encodeURIComponent(`${songArtist} ${songTitle} album cover art masterpiece vibrant 4k`);
+      finalCover = `https://image.pollinations.ai/prompt/${promptClean}?width=512&height=512&nologo=true`;
+    }
+
+    setUploadStatus(`Subiendo archivo de audio "${songTitle}" a Cloudflare R2...`);
+
+    try {
+      let publicUrl = '';
+
+      // 1. Subir archivo a Cloudflare R2 usando PutObjectCommand
+      try {
+        publicUrl = await uploadToR2(file);
+        console.log('Archivo subido exitosamente a Cloudflare R2:', publicUrl);
+      } catch (r2Error: any) {
+        console.error('Error al subir a Cloudflare R2:', r2Error);
+        triggerToast(
+          `Error al subir a Cloudflare R2: ${r2Error?.message || 'Verifica tus credenciales y configuración CORS en Cloudflare R2'}`,
+          'error'
+        );
+        throw r2Error;
+      }
+
+      // 2. INSERT directo en la tabla 'songs' de Supabase con la URL pública de R2
+      setUploadStatus(`Guardando "${songTitle}" en Supabase...`);
+      let dbRecord: any = null;
+      try {
+        const { data: songInserted, error: insertError } = await supabase
+          .from('songs')
+          .insert([
+            {
+              title: songTitle,
+              artist: songArtist,
+              cover_url: finalCover,
+              audio_url: publicUrl
+            }
+          ])
+          .select()
+          .single();
+
+        if (insertError) {
+          console.warn('Nota en INSERT de tabla songs:', insertError.message || insertError);
+          triggerToast(`Aviso al guardar en Supabase: ${insertError.message}`, 'error');
+        } else {
+          dbRecord = songInserted;
+        }
+      } catch (insertErr: any) {
+        console.warn('Excepción al insertar en tabla songs:', insertErr);
+        triggerToast(`Error al guardar en Supabase: ${insertErr?.message || insertErr}`, 'error');
+      }
+
+      const nuevaCancion: Song = {
+        id: dbRecord?.id || ('r2_' + Date.now()),
+        title: songTitle,
+        artist: songArtist,
+        titulo: songTitle,
+        artista: songArtist,
+        cover_url: finalCover,
+        cover: finalCover,
+        audio_url: publicUrl,
+        url: publicUrl,
+        storage_path: publicUrl,
+        created_at: dbRecord?.created_at || new Date().toISOString(),
+        lyrics: fileLyrics || undefined
+      };
+
+      // 3. Guardar metadatos locales y persistentes
+      guardarMetadatoCancion(publicUrl, {
+        titulo: songTitle,
+        artista: songArtist,
+        cover: finalCover,
+        folderId: targetFolderId,
+        url: publicUrl,
+        created_at: nuevaCancion.created_at || new Date().toISOString(),
+        lyrics: fileLyrics || undefined
+      });
+      guardarLetraPersistente(nuevaCancion.id, publicUrl, songTitle, songArtist, fileLyrics);
+
+      // 4. Agregar a la carpeta seleccionada (ej. buchonass, perreale, tus_me_gusta)
+      if (targetFolderId) {
+        agregarCancionACarpeta(targetFolderId, nuevaCancion);
+      }
+
+      // 5. Actualizar los estados de la interfaz
+      setSongs((prev) => [nuevaCancion, ...prev.filter((s) => String(s.id) !== String(nuevaCancion.id))]);
+      setCanciones((prev) => [nuevaCancion, ...prev.filter((s) => String(s.id) !== String(nuevaCancion.id))]);
+
+      // 6. Reproducir directamente la canción usando la URL pública de R2
+      setCurrentSong(nuevaCancion);
+      setIsPlaying(true);
+
+      triggerToast(`✨ ¡"${songTitle}" por ${songArtist} guardada exitosamente en Cloudflare R2!`, 'success');
+
+      setShowUploadModal(false);
+      setSelectedFile(null);
+      setCoverFile(null);
+      setCoverPreviewUrl('');
+      setCustomTitle('');
+      setCustomArtist('');
+      setCustomCoverUrl('');
+      setAiIdentifiedInfo(null);
+    } catch (error: any) {
+      console.warn('Fallo en subirCancion a R2:', error);
+    } finally {
+      setIsUploading(false);
+      setUploadStatus('');
+    }
+  }
+
+  // ==========================================
+  // SUBIDA DE MÚLTIPLES ARCHIVOS MP3 Y CARPETAS ENTERAS
+  // ==========================================
+  const subirMultiplesArchivos = async (archivos: FileList | File[], folderDestinoId?: string) => {
+    const lista = Array.from(archivos).filter((f) => {
+      const ext = f.name.toLowerCase();
+      return (
+        f.type.startsWith('audio/') ||
+        ext.endsWith('.mp3') ||
+        ext.endsWith('.wav') ||
+        ext.endsWith('.m4a') ||
+        ext.endsWith('.aac') ||
+        ext.endsWith('.flac') ||
+        ext.endsWith('.ogg')
+      );
+    });
+
+    if (lista.length === 0) {
+      triggerToast('No se encontraron archivos de audio MP3 compatibles.', 'error');
+      return;
+    }
+
+    setIsUploading(true);
+    const nuevasCanciones: Song[] = [];
+    const targetFolder = folderDestinoId || targetFolderId || 'tus_me_gusta';
+
+    for (let i = 0; i < lista.length; i++) {
+      const file = lista[i];
+      setUploadProgress({ total: lista.length, current: i + 1, currentName: file.name });
+      setUploadStatus(`Procesando ${i + 1} de ${lista.length}: "${file.name}"...`);
+
+      try {
+        const id3 = await extractAudioMetadataFromFile(file);
+        const fast = parseSmartAudioName(file.name);
+        const songTitle = id3.title || fast.titulo || file.name.replace(/\.[^/.]+$/, '');
+        const songArtist = id3.artist || fast.artista || 'Artista';
+
+        const promptClean = encodeURIComponent(`${songArtist} ${songTitle} album cover art masterpiece vibrant 4k`);
+        const cover = id3.coverUrl || `https://image.pollinations.ai/prompt/${promptClean}?width=512&height=512&nologo=true`;
+
+        // 1. Subir archivo de audio a Cloudflare R2 con PutObjectCommand
+        let finalAudioUrl = '';
+        try {
+          finalAudioUrl = await uploadToR2(file);
+        } catch (r2Err: any) {
+          console.error(`Error al subir a Cloudflare R2 "${file.name}":`, r2Err);
+          triggerToast(`Error en R2 con "${file.name}": ${r2Err?.message || 'Error de subida'}`, 'error');
+          continue;
+        }
+
+        const ruta = finalAudioUrl;
+
+        // Insertar en tabla 'songs'
+        let dbId: string | undefined;
+        try {
+          const { data: songInserted } = await supabase
+            .from('songs')
+            .insert([
+              {
+                title: songTitle,
+                artist: songArtist,
+                cover_url: cover,
+                audio_url: finalAudioUrl
+              }
+            ])
+            .select()
+            .single();
+
+          if (songInserted?.id) dbId = songInserted.id;
+        } catch (e) {
+          console.warn('Nota BD:', e);
+        }
+
+        const cancion: Song = {
+          id: dbId || ('r2_' + Date.now() + '_' + i),
+          title: songTitle,
+          artist: songArtist,
+          titulo: songTitle,
+          artista: songArtist,
+          cover_url: cover,
+          cover: cover,
+          audio_url: finalAudioUrl,
+          url: finalAudioUrl,
+          storage_path: ruta,
+          created_at: new Date().toISOString(),
+          lyrics: id3.lyrics || undefined
+        };
+
+        guardarMetadatoCancion(ruta, {
+          titulo: songTitle,
+          artista: songArtist,
+          cover,
+          folderId: targetFolder,
+          url: finalAudioUrl,
+          created_at: cancion.created_at || new Date().toISOString(),
+          lyrics: id3.lyrics || undefined
+        });
+        guardarLetraPersistente(cancion.id, ruta, songTitle, songArtist, id3.lyrics);
+
+        nuevasCanciones.push(cancion);
+      } catch (err) {
+        console.warn('Error subiendo audio múltiple:', err);
+      }
+    }
+
+    if (nuevasCanciones.length > 0) {
+      setSongs((prev) => [...nuevasCanciones, ...prev.filter((p) => !nuevasCanciones.some((n) => String(n.id) === String(p.id)))]);
+      setCanciones((prev) => [...nuevasCanciones, ...prev.filter((p) => !nuevasCanciones.some((n) => String(n.id) === String(p.id)))]);
+
+      setFolders((prev) =>
+        prev.map((f) => {
+          if (f.id === targetFolder) {
+            return {
+              ...f,
+              canciones: [...nuevasCanciones, ...f.canciones]
+            };
+          }
+          return f;
+        })
+      );
+
+      // Reproducir automáticamente la primera canción agregada
+      reproducirCancionDirecta(nuevasCanciones[0]);
+      triggerToast(`¡Se subieron y agregaron ${nuevasCanciones.length} canciones con éxito!`, 'success');
+    }
+
+    setIsUploading(false);
+    setUploadStatus('');
+    setUploadProgress(null);
+    setShowUploadModal(false);
+  };
+
+  // ==========================================
+  // CONTROLES DE REPRODUCCIÓN & AUTOPLAY SIGUIENTE
+  // ==========================================
+  const obtenerListaActiva = (): Song[] => {
+    if (selectedFolder && selectedFolder.canciones.length > 0) {
+      return selectedFolder.canciones;
+    }
+    if (canciones.length > 0) return canciones;
+    if (songs.length > 0) return songs;
+    return [];
+  };
+
+  const reproducirCancionDirecta = (song: Song) => {
+    setCurrentSong(song);
+    setIsPlaying(true);
+    const audioEl = audioRef.current;
+    if (audioEl) {
+      const src = song.audio_url || song.url;
+      if (src) {
+        audioEl.src = src;
+        audioEl.currentTime = 0;
+        audioEl.load();
+        const p = audioEl.play();
+        if (p !== undefined) {
+          p.then(() => setIsPlaying(true)).catch((err) => console.warn('Error en autoplay:', err));
+        }
+      }
+    }
+  };
+
+  const seleccionarCancion = (song: Song) => {
+    if (currentSong?.id === song.id) {
+      togglePlay();
+      return;
+    }
+    reproducirCancionDirecta(song);
+  };
+
+  const togglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch((err) => console.warn('Error al reproducir audio:', err));
+    }
+  };
+
+  // ==========================================
+  // CONTROLES DE REPRODUCCIÓN (ALEATORIO, REPETIR, SIGUIENTE, ANTERIOR)
+  // ==========================================
+  const toggleShuffle = () => {
+    setIsShuffle((prev) => {
+      const next = !prev;
+      triggerToast(next ? '🔀 Modo aleatorio activado' : 'Modo aleatorio desactivado', 'success');
+      return next;
+    });
+  };
+
+  const toggleRepeat = () => {
+    setRepeatMode((prev) => {
+      if (prev === 'off') {
+        triggerToast('🔁 Repetir toda la lista', 'success');
+        return 'all';
+      } else if (prev === 'all') {
+        triggerToast('🔂 Repetir esta canción', 'success');
+        return 'one';
+      } else {
+        triggerToast('Repetición desactivada', 'success');
+        return 'off';
+      }
+    });
+  };
+
+  const setupAudioContext = () => {
+    if (!audioRef.current) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioCtx();
+      }
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
+      if (!sourceNodeRef.current && audioRef.current) {
+        analyserRef.current = audioContextRef.current.createAnalyser();
+        analyserRef.current.fftSize = 64;
+        sourceNodeRef.current = audioContextRef.current.createMediaElementSource(audioRef.current);
+        sourceNodeRef.current.connect(analyserRef.current);
+        analyserRef.current.connect(audioContextRef.current.destination);
+      }
+    } catch (e) {
+      console.warn('AudioContext notice:', e);
+    }
+  };
+
+  const toggleFavorite = (song: Song) => {
+    const sId = String(song.id);
+    setFavorites((prev) => {
+      const exists = prev.includes(sId);
+      const updated = exists ? prev.filter((id) => id !== sId) : [...prev, sId];
+      try {
+        localStorage.setItem('fa_favorites_v1', JSON.stringify(updated));
+      } catch {}
+      triggerToast(
+        exists ? `"${song.title || song.titulo}" se quitó de Tus me gusta` : `💚 "${song.title || song.titulo}" agregada a Tus me gusta`,
+        'success'
+      );
+      return updated;
+    });
+  };
+
+  const agregarACola = (song: Song, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setQueue((prev) => [...prev, song]);
+    triggerToast(`➕ "${song.title || song.titulo}" agregada a la cola`, 'success');
+  };
+
+  // Botón "Siguiente" con soporte para Cola y Shuffle (Aleatorio)
+  const reproducirSiguiente = () => {
+    if (queue.length > 0) {
+      const nextSong = queue[0];
+      setQueue((prev) => prev.slice(1));
+      reproducirCancionDirecta(nextSong);
+      triggerToast(`🎶 Reproduciendo de la cola: "${nextSong.title || nextSong.titulo}"`, 'success');
+      return;
+    }
+
+    const playlist = obtenerListaActiva();
+    if (playlist.length === 0) return;
+    const currentIndex = playlist.findIndex((s) => String(s.id) === String(currentSong?.id));
+    
+    let nextIndex = 0;
+    if (isShuffle && playlist.length > 1) {
+      do {
+        nextIndex = Math.floor(Math.random() * playlist.length);
+      } while (nextIndex === currentIndex && playlist.length > 1);
+    } else {
+      nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % playlist.length;
+    }
+
+    const nextSong = playlist[nextIndex];
+    reproducirCancionDirecta(nextSong);
+  };
+
+  // Botón "Anterior" con soporte para reinicio de pista y Shuffle
+  const reproducirAnterior = () => {
+    if (audioRef.current && audioRef.current.currentTime > 3) {
+      audioRef.current.currentTime = 0;
+      setCurrentTime(0);
+      return;
+    }
+
+    const playlist = obtenerListaActiva();
+    if (playlist.length === 0) return;
+    const currentIndex = playlist.findIndex((s) => String(s.id) === String(currentSong?.id));
+    
+    let prevIndex = 0;
+    if (isShuffle && playlist.length > 1) {
+      do {
+        prevIndex = Math.floor(Math.random() * playlist.length);
+      } while (prevIndex === currentIndex && playlist.length > 1);
+    } else {
+      prevIndex = currentIndex === -1 ? 0 : (currentIndex - 1 + playlist.length) % playlist.length;
+    }
+
+    const prevSong = playlist[prevIndex];
+    reproducirCancionDirecta(prevSong);
+  };
+
+  // Manejador del final de la pista (onEnded): Soporta Repetir 1, Repetir Todo y Aleatorio
+  const handleAudioEnded = () => {
+    if (repeatMode === 'one') {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch((err) => console.warn('Error repitiendo canción:', err));
+      }
+    } else if (repeatMode === 'all') {
+      reproducirSiguiente();
+    } else {
+      // Modo 'off'
+      const playlist = obtenerListaActiva();
+      const currentIndex = playlist.findIndex((s) => String(s.id) === String(currentSong?.id));
+      if (isShuffle || currentIndex < playlist.length - 1) {
+        reproducirSiguiente();
+      } else {
+        setIsPlaying(false);
+      }
+    }
+  };
+
+  // ==========================================
+  // 2. GESTOS SWIPE (TOUCH Y MOUSE) PARA PASAR DE CANCIÓN
+  // ==========================================
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const mouseStartXRef = useRef<number | null>(null);
+  const isMouseDownRef = useRef<boolean>(false);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null || touchStartYRef.current === null) return;
+    const diffX = e.changedTouches[0].clientX - touchStartXRef.current;
+    const diffY = e.changedTouches[0].clientY - touchStartYRef.current;
+
+    // Detectar swipe horizontal claro (mínimo 40px)
+    if (Math.abs(diffX) > 40 && Math.abs(diffX) > Math.abs(diffY)) {
+      if (diffX < 0) {
+        reproducirSiguiente();
+        triggerToast('⏭ Siguiente canción', 'success');
+      } else {
+        reproducirAnterior();
+        triggerToast('⏮ Canción anterior', 'success');
+      }
+    }
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    mouseStartXRef.current = e.clientX;
+    isMouseDownRef.current = true;
+  };
+
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (!isMouseDownRef.current || mouseStartXRef.current === null) return;
+    const diffX = e.clientX - mouseStartXRef.current;
+    if (Math.abs(diffX) > 40) {
+      if (diffX < 0) {
+        reproducirSiguiente();
+        triggerToast('⏭ Siguiente canción', 'success');
+      } else {
+        reproducirAnterior();
+        triggerToast('⏮ Canción anterior', 'success');
+      }
+    }
+    isMouseDownRef.current = false;
+    mouseStartXRef.current = null;
+  };
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+      if (audioRef.current.duration && !isNaN(audioRef.current.duration)) {
+        setDuration(audioRef.current.duration);
+      }
+    }
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const time = parseFloat(e.target.value);
+    setCurrentTime(time);
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+    }
+  };
+
+  const handleSeekTime = (seconds: number) => {
+    setCurrentTime(seconds);
+    if (audioRef.current) {
+      audioRef.current.currentTime = seconds;
+    }
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setVolume(val);
+    if (audioRef.current) {
+      audioRef.current.volume = val;
+    }
+    setIsMuted(val === 0);
+  };
+
+  const toggleMute = () => {
+    if (!audioRef.current) return;
+    if (isMuted) {
+      audioRef.current.volume = volume || 0.85;
+      setIsMuted(false);
+    } else {
+      audioRef.current.volume = 0;
+      setIsMuted(true);
+    }
+  };
+
+  const formatTime = (segundos: number) => {
+    if (isNaN(segundos)) return '00:00';
+    const mins = Math.floor(segundos / 60);
+    const secs = Math.floor(segundos % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  useEffect(() => {
+    if (audioRef.current && (currentSong?.audio_url || currentSong?.url)) {
+      audioRef.current.load();
+      if (isPlaying) {
+        audioRef.current.play().catch((e) => console.warn('Reproducción diferida:', e));
+      }
+    }
+  }, [currentSong]);
+
+  const listaParaBuscar = songs.length > 0 ? songs : canciones;
+  const filteredSongs = listaParaBuscar.filter(
+    (c) =>
+      (c.title || c.titulo || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (c.artist || c.artista || '').toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // ==========================================
+  // ARTWORK THUMBNAILS (COVERS IDÉNTICOS AL SCREENSHOT)
+  // ==========================================
+  const renderCover = (coverType?: string, className: string = 'w-14 h-14') => {
+    if (coverType && (coverType.startsWith('http://') || coverType.startsWith('https://') || coverType.startsWith('data:image') || coverType.startsWith('/'))) {
+      return (
+        <div className={`${className} shrink-0 rounded-l-md overflow-hidden relative shadow bg-neutral-900 border border-white/10`}>
+          <img src={coverType} alt="Portada" className="w-full h-full object-cover" />
+        </div>
+      );
+    }
+
+    switch (coverType) {
+      case 'cover_buchonass':
+        return (
+          <div className={`${className} grid grid-cols-2 grid-rows-2 shrink-0 bg-neutral-900 rounded-l-md overflow-hidden relative shadow`}>
+            <div className="bg-[#b45309] text-[7px] font-black text-amber-200 flex items-center justify-center p-0.5 text-center leading-tight">
+              EL TÓXICO
+            </div>
+            <div className="bg-[#1e3a8a] text-[7px] font-black text-blue-200 flex items-center justify-center p-0.5 text-center leading-tight">
+              RECODITOS
+            </div>
+            <div className="bg-[#451a03] text-[7px] font-black text-amber-100 flex items-center justify-center p-0.5 text-center leading-tight">
+              PUERTO
+            </div>
+            <div className="bg-[#172554] text-[7px] font-black text-white flex items-center justify-center p-0.5 text-center leading-tight">
+              FANTASÍA
+            </div>
+          </div>
+        );
+
+      case 'cover_tus_me_gusta':
+        return (
+          <div className={`${className} bg-gradient-to-br from-[#4c1d95] via-[#6366f1] to-[#3b82f6] flex items-center justify-center shrink-0 rounded-l-md shadow`}>
+            <Heart className="w-6 h-6 text-white fill-current drop-shadow" />
+          </div>
+        );
+
+      case 'cover_perreale':
+        return (
+          <div className={`${className} grid grid-cols-2 grid-rows-2 shrink-0 bg-neutral-950 rounded-l-md overflow-hidden shadow`}>
+            <div className="bg-red-700 text-[6px] font-black text-yellow-300 flex items-center justify-center">PLAYER</div>
+            <div className="bg-neutral-900 text-[8px] font-black text-red-500 flex items-center justify-center">23</div>
+            <div className="bg-pink-700 text-[6px] font-black text-white flex items-center justify-center">PERREO</div>
+            <div className="bg-red-600 text-[6px] font-black text-white flex items-center justify-center">GUETTA</div>
+          </div>
+        );
+
+      case 'cover_lob':
+        return (
+          <div className={`${className} grid grid-cols-2 grid-rows-2 shrink-0 bg-[#1c1917] rounded-l-md overflow-hidden shadow`}>
+            <div className="bg-[#292524] text-[6px] font-bold text-amber-300 flex items-center justify-center">NUEVA</div>
+            <div className="bg-[#44403c] text-[6px] font-bold text-white flex items-center justify-center">COVERS</div>
+            <div className="bg-[#1c1917] text-[6px] font-bold text-amber-400 flex items-center justify-center">REGISTRADA</div>
+            <div className="bg-[#0c0a09] text-[6px] font-bold text-yellow-500 flex items-center justify-center">FIRME</div>
+          </div>
+        );
+
+      case 'cover_2000':
+        return (
+          <div className={`${className} grid grid-cols-2 grid-rows-2 shrink-0 bg-neutral-900 rounded-l-md overflow-hidden shadow`}>
+            <div className="bg-rose-600 text-[6px] font-black text-white flex items-center justify-center">HSM</div>
+            <div className="bg-amber-500 text-[6px] font-black text-neutral-900 flex items-center justify-center">CAMP</div>
+            <div className="bg-cyan-600 text-[6px] font-black text-white flex items-center justify-center">POP</div>
+            <div className="bg-indigo-600 text-[6px] font-black text-white flex items-center justify-center">ROCK</div>
+          </div>
+        );
+
+      case 'cover_grwm':
+        return (
+          <div className={`${className} grid grid-cols-2 grid-rows-2 shrink-0 bg-neutral-950 rounded-l-md overflow-hidden shadow`}>
+            <div className="bg-neutral-800 text-[6px] font-bold text-gray-300 flex items-center justify-center">DERULO</div>
+            <div className="bg-neutral-900 text-[6px] font-bold text-pink-400 flex items-center justify-center">RIHANNA</div>
+            <div className="bg-stone-900 text-[6px] font-bold text-amber-200 flex items-center justify-center">YOUNG</div>
+            <div className="bg-neutral-800 text-[6px] font-bold text-white flex items-center justify-center">WIZ</div>
+          </div>
+        );
+
+      case 'cover_baladas':
+        return (
+          <div className={`${className} bg-gradient-to-tr from-[#881337] via-[#e11d48] to-[#9f1239] flex flex-col items-center justify-center p-1 shrink-0 rounded-l-md shadow relative`}>
+            <div className="absolute top-1 left-1 w-2.5 h-2.5 rounded-full bg-white/40 flex items-center justify-center text-[5px]">●</div>
+            <span className="text-[7px] text-white font-extrabold text-center leading-none mt-2">
+              Baladas<br />Románticas
+            </span>
+          </div>
+        );
+
+      case 'cover_reina':
+        return (
+          <div className={`${className} bg-[#262626] border border-white/5 flex items-center justify-center shrink-0 rounded-l-md shadow`}>
+            <ImageIcon className="w-6 h-6 text-gray-400 stroke-[1.5]" />
+          </div>
+        );
+
+      case 'cover_23':
+        return (
+          <div className={`${className} bg-[#881337] border border-white/20 flex flex-col items-center justify-center p-1 shrink-0 rounded shadow`}>
+            <span className="text-[14px] font-black text-white tracking-tighter leading-none">23</span>
+            <span className="text-[6px] font-bold text-red-200 uppercase tracking-widest mt-0.5">MIKE WILL</span>
+          </div>
+        );
+
+      default:
+        return (
+          <div className={`${className} bg-gradient-to-br from-[#1E90FF] to-[#E91E63] flex items-center justify-center shrink-0 rounded-l-md shadow`}>
+            <Music className="w-6 h-6 text-white" />
+          </div>
+        );
+    }
+  };
+  // ==========================================
+  // GESTIÓN DE CARPETAS DE AUDIOS (PLAYLISTS)
+  // ==========================================
+
+  const obtenerCancionesCarpeta = (folder: AudioFolder): Song[] => {
+    const currentFolderData = folders.find((f) => f.id === folder.id) || folder;
+    if (folder.id === 'tus_me_gusta') {
+      const cancionesSubidas = canciones.filter(
+        (c) => !initialDemoSongs.some((demo) => demo.id === c.id)
+      );
+      const ids = new Set(currentFolderData.canciones.map((c) => String(c.id)));
+      const extras = cancionesSubidas.filter((c) => !ids.has(String(c.id)));
+      return [...extras, ...currentFolderData.canciones];
+    }
+    return currentFolderData.canciones;
+  };
+
+  const toggleLikeFolder = (folderId: string) => {
+    setFolderLiked((prev) => {
+      const nextVal = !prev[folderId];
+      triggerToast(
+        nextVal ? 'Carpeta guardada en tus favoritas' : 'Carpeta eliminada de favoritas',
+        'success'
+      );
+      return { ...prev, [folderId]: nextVal };
+    });
+  };
+
+  // Renderizar la vista detallada de la carpeta de audios
+  const renderFolderView = (folder: AudioFolder) => {
+    const currentFolderState = folders.find((f) => f.id === folder.id) || folder;
+    const cancionesCarpeta = obtenerCancionesCarpeta(currentFolderState);
+    const estaReproduciendoCarpeta = cancionesCarpeta.some(
+      (c) => c.id === currentSong?.id && isPlaying
+    );
+
+    return (
+      <div className="space-y-6 animate-fade-in pb-16">
+        {/* Barra superior de navegación dentro de la carpeta */}
+        <div className="flex items-center justify-between sticky top-0 bg-[#121212]/95 backdrop-blur-md py-3 z-20 border-b border-white/5">
+          <button
+            onClick={() => setSelectedFolder(null)}
+            className="flex items-center gap-2 text-sm font-bold text-gray-200 hover:text-white bg-[#222222] hover:bg-[#2e2e2e] px-4 py-2 rounded-full transition shadow-sm active:scale-95"
+          >
+            <ArrowLeft className="w-5 h-5 text-emerald-400" />
+            <span>Volver a Inicio</span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs uppercase font-bold tracking-wider px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              {currentFolderState.badge || 'Carpeta de Audios'}
+            </span>
+          </div>
+        </div>
+
+        {/* Encabezado / Hero de la Carpeta */}
+        <div className="flex flex-col sm:flex-row items-center sm:items-end gap-6 pt-2">
+          <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-2xl overflow-hidden shadow-2xl shrink-0 ring-1 ring-white/10 flex items-center justify-center bg-[#1c1c1e]">
+            {renderCover(currentFolderState.coverKey, 'w-full h-full object-cover')}
+          </div>
+
+          <div className="flex-1 text-center sm:text-left min-w-0">
+            <div className="text-xs font-bold text-emerald-400 uppercase tracking-widest flex items-center justify-center sm:justify-start gap-1.5">
+              <span>FINANCIERA AARON</span>
+              <span>•</span>
+              <span>CARPETA DE AUDIOS</span>
+            </div>
+            <h1 className="text-3xl sm:text-5xl font-black text-white mt-1.5 leading-tight tracking-tight">
+              {currentFolderState.titulo}
+            </h1>
+            <p className="text-sm sm:text-base text-gray-300 mt-2 font-medium line-clamp-2">
+              {currentFolderState.subtitulo}
+            </p>
+            <p className="text-xs sm:text-sm text-gray-400 mt-1 line-clamp-2">
+              {currentFolderState.descripcion}
+            </p>
+            <div className="flex items-center justify-center sm:justify-start gap-2.5 text-xs sm:text-sm text-gray-300 mt-3.5 font-medium flex-wrap">
+              <span className="text-white font-black bg-white/10 px-2.5 py-0.5 rounded-md">{cancionesCarpeta.length} audios</span>
+              <span>•</span>
+              <span>Audio HQ 320kbps</span>
+              <span>•</span>
+              <span className="text-emerald-400 font-bold">Reproducción Inmediata</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Barra de Acciones de la Carpeta */}
+        <div className="flex flex-wrap items-center gap-3 py-3 border-y border-white/10">
+          {/* Botón Play grande */}
+          <button
+            onClick={() => {
+              if (cancionesCarpeta.length > 0) {
+                seleccionarCancion(cancionesCarpeta[0]);
+              }
+            }}
+            className="w-14 h-14 rounded-full bg-[#1ED760] hover:bg-[#1db954] text-black flex items-center justify-center shadow-xl active:scale-95 transition"
+            title="Reproducir todos los audios"
+          >
+            {estaReproduciendoCarpeta ? (
+              <Pause className="w-7 h-7 fill-current" />
+            ) : (
+              <Play className="w-7 h-7 fill-current ml-0.5" />
+            )}
+          </button>
+
+          {/* Botón Like de Carpeta */}
+          <button
+            onClick={() => toggleLikeFolder(currentFolderState.id)}
+            className={`p-3 rounded-full border transition ${
+              folderLiked[currentFolderState.id]
+                ? 'text-[#1ED760] border-[#1ED760]/40 bg-emerald-500/10'
+                : 'text-gray-400 hover:text-white border-white/10 hover:border-white/30'
+            }`}
+            title="Guardar en favoritos"
+          >
+            <Heart className={`w-5 h-5 ${folderLiked[currentFolderState.id] ? 'fill-current' : ''}`} />
+          </button>
+
+          {/* Botón 1: Agregar música a esta carpeta (de la biblioteca) */}
+          <button
+            onClick={() => {
+              setSelectedFolder(currentFolderState);
+              setShowAddMusicToCurrentFolderModal(true);
+            }}
+            className="px-4 py-2.5 rounded-full text-xs sm:text-sm font-bold bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-2 shadow-lg transition active:scale-95"
+            title="Agregar canciones existentes de la biblioteca a esta carpeta"
+          >
+            <Plus className="w-4 h-4 stroke-[3]" />
+            <span>+ Agregar música</span>
+          </button>
+
+          {/* Botón 2: Subir MP3 con DeepSeek IA a esta carpeta */}
+          <button
+            onClick={() => {
+              setTargetFolderId(currentFolderState.id);
+              setCustomArtist(currentFolderState.titulo);
+              setShowUploadModal(true);
+            }}
+            className="px-4 py-2.5 rounded-full text-xs sm:text-sm font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white flex items-center gap-2 shadow-lg transition active:scale-95"
+            title="Subir un archivo MP3 e identificarlo con IA para esta carpeta"
+          >
+            <Sparkles className="w-4 h-4 text-yellow-300" />
+            <span>Subir MP3 con IA</span>
+          </button>
+        </div>
+
+        {/* Lista de Pistas / Audios de la Carpeta */}
+        <div className="space-y-1.5">
+          <div className="px-3 py-2 flex items-center text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-white/5">
+            <span className="w-8 text-center">#</span>
+            <span className="flex-1">Título y Artista</span>
+            <span className="w-28 text-right pr-2">Acciones</span>
+          </div>
+
+          {cancionesCarpeta.length === 0 ? (
+            <div className="p-10 text-center bg-[#181818] rounded-2xl border border-white/5 text-gray-400 space-y-3">
+              <Folder className="w-12 h-12 mx-auto text-gray-500" />
+              <p className="text-base font-bold text-white">Esta carpeta aún no tiene canciones</p>
+              <p className="text-xs sm:text-sm max-w-sm mx-auto">
+                Toca en <strong className="text-blue-400">&quot;+ Agregar música&quot;</strong> para elegir canciones o en <strong className="text-pink-400">&quot;Subir MP3 con IA&quot;</strong>.
+              </p>
+              <div className="flex justify-center gap-2.5 pt-2">
+                <button
+                  onClick={() => setShowAddMusicToCurrentFolderModal(true)}
+                  className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-blue-600 text-white hover:bg-blue-500 transition"
+                >
+                  Elegir de la biblioteca
+                </button>
+              </div>
+            </div>
+          ) : (
+            cancionesCarpeta.map((cancion, idx) => {
+              const esActual = currentSong?.id === cancion.id;
+              const sonando = esActual && isPlaying;
+
+              return (
+                <div
+                  key={cancion.id}
+                  onClick={() => seleccionarCancion(cancion)}
+                  className={`group flex items-center px-3 py-3 rounded-xl cursor-pointer transition select-none ${
+                    esActual
+                      ? 'bg-white/10 text-white border border-emerald-500/30'
+                      : 'hover:bg-white/5 text-gray-200'
+                  }`}
+                >
+                  {/* Número o Indicador de reproducción */}
+                  <div className="w-8 flex items-center justify-center shrink-0">
+                    {sonando ? (
+                      <div className="flex items-end gap-0.5 h-4">
+                        <span className="w-1 bg-[#1ED760] h-full animate-bounce rounded-full" />
+                        <span className="w-1 bg-[#1ED760] h-2.5 animate-bounce rounded-full [animation-delay:0.2s]" />
+                        <span className="w-1 bg-[#1ED760] h-3.5 animate-bounce rounded-full [animation-delay:0.4s]" />
+                      </div>
+                    ) : (
+                      <span className={`text-sm font-semibold ${esActual ? 'text-[#1ED760]' : 'text-gray-400 group-hover:hidden'}`}>
+                        {idx + 1}
+                      </span>
+                    )}
+                    {!sonando && (
+                      <Play className="w-4 h-4 text-white hidden group-hover:block ml-0.5 fill-current" />
+                    )}
+                  </div>
+
+                  {/* Portada miniatura */}
+                  <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0 mx-2.5 shadow bg-neutral-800">
+                    {renderCover(cancion.cover_url || cancion.cover || currentFolderState.coverKey, 'w-full h-full object-cover')}
+                  </div>
+
+                  {/* Datos de la Pista (Letras un poco más grandes) */}
+                  <div className="flex-1 min-w-0 pr-2">
+                    <p
+                      className={`text-sm sm:text-base font-bold truncate leading-tight ${
+                        esActual ? 'text-[#1ED760]' : 'text-white'
+                      }`}
+                    >
+                      {cancion.title || cancion.titulo}
+                    </p>
+                    <p className="text-xs sm:text-sm text-gray-400 truncate mt-0.5 font-medium">
+                      {cancion.artist || cancion.artista}
+                    </p>
+                  </div>
+
+                  {/* Botones de acción: Quitar de carpeta y Eliminar */}
+                  <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                    {/* Botón: Quitar de esta carpeta */}
+                    <button
+                      onClick={(e) => quitarCancionDeCarpeta(currentFolderState.id, cancion.id, e)}
+                      className="p-2 text-amber-400 hover:text-amber-300 hover:bg-amber-400/10 rounded-lg transition"
+                      title="Quitar de esta carpeta"
+                    >
+                      <MinusCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </button>
+
+                    {/* Botón: Eliminar canción permanentemente */}
+                    <button
+                      onClick={(e) => eliminarCancion(cancion, e)}
+                      className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition"
+                      title="Eliminar canción permanentemente"
+                    >
+                      <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div
+      className="flex flex-col h-screen w-screen bg-[#121212] text-white font-sans overflow-hidden select-none"
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {/* Elemento de Audio Nativo HTML5 */}
+      <audio
+        ref={audioRef}
+        src={currentSong?.audio_url || currentSong?.url || undefined}
+        controlsList="nodownload noplaybackrate"
+        onTimeUpdate={handleTimeUpdate}
+        onEnded={handleAudioEnded}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        className="hidden"
+      />
+
+
+      {/* ==========================================
+          BARRA SUPERIOR DE FILTROS (AVATAR + TODAS + MÚSICA + PODCASTS + AUDIOLIBROS)
+          ========================================== */}
+      <div className="px-4 py-2 flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0 z-20">
+        {/* Avatar Usuario */}
+        <div
+          onClick={() => {
+            if (!user) setShowLoginModal(true);
+            else setShowDeployModal(true);
+          }}
+          className="relative w-8 h-8 rounded-full overflow-hidden shrink-0 cursor-pointer border border-white/20 active:scale-95 transition"
+          title={user ? user.email : 'Iniciar Sesión'}
+        >
+          <img
+            src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
+            alt="Usuario"
+            className="w-full h-full object-cover"
+          />
+        </div>
+
+        {/* 1. Botón Inicio */}
+        <button
+          onClick={() => {
+            setActiveFilter('inicio');
+            setSelectedFolder(null);
+          }}
+          className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 flex items-center gap-1.5 active:scale-95 ${
+            activeFilter === 'inicio' && !selectedFolder
+              ? 'bg-[#1ED760] text-black shadow-sm font-black'
+              : 'bg-[#2A2A2A] text-white hover:bg-[#333333]'
+          }`}
+          title="Ver pantalla de inicio"
+        >
+          <Home className="w-3.5 h-3.5" />
+          <span>Inicio</span>
+        </button>
+
+        {/* 2. Botón Canciones (100% funcional) */}
+        <button
+          onClick={() => {
+            setActiveFilter('canciones');
+            setSelectedFolder(null);
+          }}
+          className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 flex items-center gap-1.5 active:scale-95 ${
+            activeFilter === 'canciones' && !selectedFolder
+              ? 'bg-[#1ED760] text-black shadow-sm font-black'
+              : 'bg-[#2A2A2A] text-white hover:bg-[#333333]'
+          }`}
+          title="Ver catálogo completo de canciones"
+        >
+          <Music className="w-3.5 h-3.5" />
+          <span>Canciones</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+            activeFilter === 'canciones' && !selectedFolder ? 'bg-black/20 text-black' : 'bg-white/10 text-emerald-400'
+          }`}>
+            {(songs.length > 0 ? songs : canciones).length}
+          </span>
+        </button>
+
+        {/* 3. Botón Carpetas (100% funcional) */}
+        <button
+          onClick={() => {
+            setActiveFilter('carpetas');
+            setSelectedFolder(null);
+          }}
+          className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 flex items-center gap-1.5 active:scale-95 ${
+            activeFilter === 'carpetas' && !selectedFolder
+              ? 'bg-[#1ED760] text-black shadow-sm font-black'
+              : 'bg-[#2A2A2A] text-white hover:bg-[#333333]'
+          }`}
+          title="Ver todas las carpetas y playlists"
+        >
+          <Folder className="w-3.5 h-3.5" />
+          <span>Carpetas</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+            activeFilter === 'carpetas' && !selectedFolder ? 'bg-black/20 text-black' : 'bg-white/10 text-blue-300'
+          }`}>
+            {folders.length}
+          </span>
+        </button>
+
+        {/* 4. Botón Favoritas (100% funcional) */}
+        <button
+          onClick={() => {
+            setActiveFilter('favoritas');
+            setSelectedFolder(null);
+          }}
+          className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 flex items-center gap-1.5 active:scale-95 ${
+            activeFilter === 'favoritas' && !selectedFolder
+              ? 'bg-[#1ED760] text-black shadow-sm font-black'
+              : 'bg-[#2A2A2A] text-white hover:bg-[#333333]'
+          }`}
+          title="Ver tus canciones favoritas"
+        >
+          <Heart className={`w-3.5 h-3.5 ${activeFilter === 'favoritas' && !selectedFolder ? 'fill-current text-black' : 'text-emerald-400'}`} />
+          <span>Favoritas</span>
+          {favorites.length > 0 && (
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+              activeFilter === 'favoritas' && !selectedFolder ? 'bg-black/20 text-black' : 'bg-pink-500/25 text-pink-300'
+            }`}>
+              {favorites.length}
+            </span>
+          )}
+        </button>
+
+        {/* 5. Botón Audiolibro (100% funcional: abre directo la carpeta del audiolibro) */}
+        <button
+          onClick={() => {
+            const f = folders.find((c) => c.id === 'audiolibro') || carpetasAudio.find((c) => c.id === 'audiolibro');
+            if (f) setSelectedFolder(f);
+          }}
+          className="px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 flex items-center gap-1.5 bg-[#2A2A2A] hover:bg-[#333333] text-purple-300 border border-purple-500/30 active:scale-95"
+          title="Abrir audiolibro completo con todos sus capítulos"
+        >
+          <Headphones className="w-3.5 h-3.5 text-purple-400" />
+          <span>Audiolibro</span>
+        </button>
+
+        {/* 6. Botón Acción "Aleatorio" (100% funcional: reproduce al instante) */}
+        <button
+          onClick={reproducirAleatorio}
+          className="px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 flex items-center gap-1.5 bg-[#1ED760]/15 hover:bg-[#1ED760]/25 text-[#1ED760] border border-[#1ED760]/40 active:scale-95 shadow-sm"
+          title="Reproducir música aleatoria al instante"
+        >
+          <Shuffle className="w-3.5 h-3.5" />
+          <span>Aleatorio</span>
+        </button>
+
+        {/* 7. Botón Acción "+ Subir MP3" (100% funcional: abre modal de subida) */}
+        <button
+          onClick={() => setShowUploadModal(true)}
+          className="px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 flex items-center gap-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white active:scale-95 shadow-sm"
+          title="Subir archivos MP3 o carpetas"
+        >
+          <Plus className="w-3.5 h-3.5 stroke-[3]" />
+          <span>Subir MP3</span>
+        </button>
+
+        {/* Botón rápido Instalar PWA en Celular */}
+        <button
+          onClick={handleInstallPWA}
+          className="ml-auto px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#1ED760]/10 hover:bg-[#1ED760]/20 text-[#1ED760] border border-[#1ED760]/40 flex items-center gap-1 shrink-0 transition shadow-sm active:scale-95"
+          title="Instalar en celular Android con su propio icono"
+        >
+          <Smartphone className="w-3.5 h-3.5 text-[#1ED760]" />
+          <span>Instalar App</span>
+        </button>
+
+        {/* Botón rápido publicar URL independiente */}
+        <button
+          onClick={() => setShowDeployModal(true)}
+          className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 hover:text-white border border-blue-500/40 flex items-center gap-1 shrink-0 transition active:scale-95 shadow-sm"
+          title="Publicar en tu propia URL independiente fuera de AI Studio"
+        >
+          <Rocket className="w-3.5 h-3.5 text-blue-400" />
+          <span>Web Propia</span>
+        </button>
+      </div>
+
+      {/* ==========================================
+          CONTENEDOR PRINCIPAL SCROLLABLE (VISTAS FUNCIONALES)
+          ========================================== */}
+      <div className="flex-1 overflow-y-auto px-3 sm:px-4 pb-36 pt-1 space-y-6">
+        {selectedFolder ? (
+          renderFolderView(selectedFolder)
+        ) : activeTab === 'inicio' ? (
+          <>
+            {/* ========================================================
+                VISTA 1: INICIO (GRID SPOTIFY, AUDIOLIBRO Y CARRUSEL)
+                ======================================================== */}
+            {activeFilter === 'inicio' && (
+              <>
+                {/* GRID 2x4 DE ACCESO RÁPIDO A CARPETAS */}
+                <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+                  {folders.slice(0, 8).map((folder) => {
+                    const count = obtenerCancionesCarpeta(folder).length;
+                    return (
+                      <div
+                        key={folder.id}
+                        onClick={() => setSelectedFolder(folder)}
+                        className="group flex items-center bg-[#282828] hover:bg-[#333333] rounded-lg overflow-hidden cursor-pointer transition active:scale-[0.98] shadow-md hover:ring-1 hover:ring-white/20 min-h-[62px]"
+                        title={`Abrir carpeta ${folder.titulo}`}
+                      >
+                        {renderCover(folder.coverKey, 'w-16 h-16')}
+                        <div className="flex-1 px-3 min-w-0">
+                          <span className="text-sm font-black text-white line-clamp-2 leading-tight">
+                            {folder.titulo}
+                          </span>
+                          <span className="text-xs text-gray-400 font-semibold block mt-0.5">
+                            {count} {count === 1 ? 'audio' : 'audios'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* SECCIÓN AUDIOLIBRO */}
+                <div className="space-y-3 pt-2">
+                  <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+                    Sumérgete en un audiolibro
+                  </h2>
+
+                  <div
+                    onClick={() => setSelectedFolder(folders.find((f) => f.id === 'audiolibro') || carpetasAudio.find((f) => f.id === 'audiolibro') || null)}
+                    className="bg-[#242424] hover:bg-[#2b2b2b] rounded-xl p-3 sm:p-4 flex gap-3.5 sm:gap-4 items-center cursor-pointer transition shadow-lg relative group hover:ring-1 hover:ring-white/10"
+                    title="Abrir audiolibro completo con todos sus capítulos"
+                  >
+                    <div className="w-28 h-28 sm:w-32 sm:h-32 bg-[#202020] border border-white/5 rounded-lg flex items-center justify-center shrink-0 shadow-inner">
+                      <div className="w-16 h-16 rounded-full border-2 border-gray-400 flex items-center justify-center relative">
+                        <div className="w-8 h-8 rounded-full border-2 border-gray-300 flex items-center justify-center">
+                          <div className="w-2.5 h-2.5 rounded-full bg-gray-300" />
+                        </div>
+                        <div className="absolute -bottom-2 w-1 h-3 bg-gray-400" />
+                      </div>
+                    </div>
+
+                    <div className="flex-1 min-w-0 flex flex-col justify-between py-1">
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-[#1ED760]">
+                            Incluido en Premium
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedFolder(folders.find((f) => f.id === 'audiolibro') || carpetasAudio.find((f) => f.id === 'audiolibro') || null);
+                            }}
+                            className="text-gray-400 hover:text-white p-1"
+                            title="Ver capítulos"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <h3 className="text-sm sm:text-base font-bold text-white mt-1 leading-snug line-clamp-2">
+                          Deja de ser tú (latino): La mente crea la real...
+                        </h3>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-4">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            triggerToast('Guardado en Tu Biblioteca', 'success');
+                          }}
+                          className="text-gray-300 hover:text-white p-1 rounded-full transition"
+                          title="Agregar a tu biblioteca"
+                        >
+                          <div className="w-6 h-6 rounded-full border border-gray-400 flex items-center justify-center">
+                            <Plus className="w-4 h-4" />
+                          </div>
+                        </button>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const folder = folders.find((f) => f.id === 'audiolibro') || carpetasAudio.find((f) => f.id === 'audiolibro');
+                            if (folder && folder.canciones.length > 0) {
+                              seleccionarCancion(folder.canciones[0]);
+                            }
+                          }}
+                          className="w-10 h-10 rounded-full bg-white hover:bg-gray-200 text-black flex items-center justify-center shadow-lg active:scale-95 transition"
+                          title="Reproducir audiolibro"
+                        >
+                          {currentSong?.id === 'audio_1' && isPlaying ? (
+                            <Pause className="w-5 h-5 fill-current" />
+                          ) : (
+                            <Play className="w-5 h-5 fill-current ml-0.5" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECCIÓN SIGUE REPRODUCIENDO */}
+                <div className="space-y-3 pt-2">
+                  <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+                    Sigue reproduciendo
+                  </h2>
+
+                  <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2 pt-1">
+                    <div
+                      onClick={() => setSelectedFolder(carpetasAudio.find((f) => f.id === 'marco_antonio') || null)}
+                      className="w-44 sm:w-48 shrink-0 bg-[#181818] hover:bg-[#222222] p-3 rounded-xl cursor-pointer transition shadow group"
+                      title="Abrir carpeta de Marco Antonio Solís"
+                    >
+                      <div className="w-full aspect-square rounded-lg overflow-hidden relative mb-2.5 bg-neutral-800">
+                        <img
+                          src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&auto=format&fit=crop&q=80"
+                          alt="Marco Antonio Solís"
+                          className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                        />
+                        <div className="absolute top-2 left-2 w-5 h-5 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center">
+                          <Music className="w-3 h-3 text-[#1ED760]" />
+                        </div>
+                      </div>
+                      <h4 className="text-sm font-bold text-white truncate">Marco Antonio Solís</h4>
+                      <p className="text-xs text-gray-400 truncate mt-0.5">
+                        Franco De Vita, Chayanne y Los Bukis
+                      </p>
+                    </div>
+
+                    <div
+                      onClick={() => setSelectedFolder(carpetasAudio.find((f) => f.id === 'mix_grupero') || null)}
+                      className="w-44 sm:w-48 shrink-0 bg-[#181818] hover:bg-[#222222] p-3 rounded-xl cursor-pointer transition shadow group"
+                      title="Abrir carpeta de Mix de grupero"
+                    >
+                      <div className="w-full aspect-square rounded-lg overflow-hidden relative mb-2.5 bg-neutral-800">
+                        <img
+                          src="https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&auto=format&fit=crop&q=80"
+                          alt="Mix de grupero"
+                          className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                        />
+                        <div className="absolute top-2 left-2 w-5 h-5 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center">
+                          <Music className="w-3 h-3 text-[#1ED760]" />
+                        </div>
+                      </div>
+                      <h4 className="text-sm font-bold text-white truncate">Mix de grupero</h4>
+                      <p className="text-xs text-gray-400 truncate mt-0.5">
+                        Eden Muñoz, Grupo Mojado, Kany García y...
+                      </p>
+                    </div>
+
+                    <div
+                      onClick={() => setActiveFilter('canciones')}
+                      className="w-44 sm:w-48 shrink-0 bg-[#181818] hover:bg-[#222222] p-3 rounded-xl cursor-pointer transition shadow group flex flex-col justify-between"
+                      title="Ver todas las canciones"
+                    >
+                      <div className="w-full aspect-square rounded-lg bg-gradient-to-tr from-blue-700 via-pink-600 to-red-600 flex items-center justify-center mb-2.5 relative shadow-inner">
+                        <Music className="w-12 h-12 text-white animate-pulse" />
+                        <div className="absolute top-2 left-2 w-5 h-5 rounded-full bg-black/60 flex items-center justify-center">
+                          <ShieldCheck className="w-3 h-3 text-blue-400" />
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-white truncate">Catálogo de Pistas</h4>
+                        <p className="text-xs text-blue-400 truncate mt-0.5 font-medium">
+                          {(songs.length > 0 ? songs : canciones).length} canciones disponibles
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ========================================================
+                VISTA 2: CANCIONES (CATÁLOGO COMPLETO FUNCIONAL)
+                ======================================================== */}
+            {activeFilter === 'canciones' && (
+              <div className="space-y-4 animate-fade-in pt-1">
+                {/* Cabecera con estadísticas y acciones rápidas */}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-gradient-to-r from-[#1c1c1e] to-[#252528] rounded-2xl border border-white/10 shadow-lg">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Music className="w-5 h-5 text-[#1ED760]" />
+                      <h2 className="text-xl sm:text-2xl font-black text-white">Todas las Canciones</h2>
+                    </div>
+                    <p className="text-xs text-gray-300 mt-1 font-medium">
+                      {(songs.length > 0 ? songs : canciones).length} canciones disponibles para reproducción instantánea
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        const lista = songs.length > 0 ? songs : canciones;
+                        if (lista.length > 0) seleccionarCancion(lista[0]);
+                      }}
+                      className="px-3.5 py-2 rounded-full bg-[#1ED760] hover:bg-[#1db954] text-black font-bold text-xs flex items-center gap-1.5 shadow-lg active:scale-95 transition"
+                      title="Reproducir desde la primera pista"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Reproducir Todo</span>
+                    </button>
+                    <button
+                      onClick={reproducirAleatorio}
+                      className="px-3.5 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center gap-1.5 border border-white/10 active:scale-95 transition"
+                      title="Reproducir en modo aleatorio"
+                    >
+                      <Shuffle className="w-3.5 h-3.5 text-[#1ED760]" />
+                      <span>Aleatorio</span>
+                    </button>
+                    <button
+                      onClick={() => setShowUploadModal(true)}
+                      className="px-3.5 py-2 rounded-full bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
+                      title="Subir nueva canción"
+                    >
+                      <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                      <span>+ Subir</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Lista de canciones con acciones completas */}
+                <div className="space-y-1.5">
+                  {(songs.length > 0 ? songs : canciones).length === 0 ? (
+                    <div className="p-8 text-center bg-[#181818] rounded-2xl border border-white/5 space-y-3">
+                      <Music className="w-10 h-10 text-gray-500 mx-auto" />
+                      <p className="text-sm font-bold text-white">No hay canciones cargadas aún</p>
+                      <p className="text-xs text-gray-400">Sube tus archivos MP3 o carpetas de música para comenzar a reproducir.</p>
+                      <button
+                        onClick={() => setShowUploadModal(true)}
+                        className="px-4 py-2 bg-[#1ED760] text-black font-bold text-xs rounded-full shadow hover:bg-[#1db954] transition"
+                      >
+                        Subir mi primer MP3
+                      </button>
+                    </div>
+                  ) : (
+                    (songs.length > 0 ? songs : canciones).map((cancion, idx) => {
+                      const esActual = currentSong?.id === cancion.id;
+                      const sonando = esActual && isPlaying;
+                      const esFav = favorites.includes(String(cancion.id));
+
+                      return (
+                        <div
+                          key={cancion.id}
+                          onClick={() => seleccionarCancion(cancion)}
+                          className={`group flex items-center px-3 py-2.5 rounded-xl cursor-pointer transition select-none ${
+                            esActual
+                              ? 'bg-white/10 text-white border border-[#1ED760]/40 shadow-md'
+                              : 'hover:bg-white/5 text-gray-200 bg-[#161616]'
+                          }`}
+                        >
+                          <div className="w-7 flex items-center justify-center shrink-0">
+                            {sonando ? (
+                              <div className="flex items-end gap-0.5 h-3.5">
+                                <span className="w-1 bg-[#1ED760] h-full animate-bounce rounded-full" />
+                                <span className="w-1 bg-[#1ED760] h-2 animate-bounce rounded-full [animation-delay:0.2s]" />
+                                <span className="w-1 bg-[#1ED760] h-3 animate-bounce rounded-full [animation-delay:0.4s]" />
+                              </div>
+                            ) : (
+                              <span className={`text-xs font-semibold ${esActual ? 'text-[#1ED760]' : 'text-gray-400 group-hover:hidden'}`}>
+                                {idx + 1}
+                              </span>
+                            )}
+                            {!sonando && (
+                              <Play className="w-3.5 h-3.5 text-white hidden group-hover:block ml-0.5 fill-current" />
+                            )}
+                          </div>
+
+                          <div className="w-11 h-11 rounded-lg overflow-hidden shrink-0 mx-2 shadow bg-neutral-900 border border-white/5">
+                            {renderCover(cancion.cover_url || cancion.cover, 'w-full h-full object-cover')}
+                          </div>
+
+                          <div className="flex-1 min-w-0 pr-2">
+                            <p className={`text-sm font-bold truncate leading-tight ${esActual ? 'text-[#1ED760]' : 'text-white'}`}>
+                              {cancion.title || cancion.titulo}
+                            </p>
+                            <p className="text-xs text-gray-400 truncate mt-0.5">
+                              {cancion.artist || cancion.artista}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleFavorite(cancion);
+                              }}
+                              className="p-2 text-gray-400 hover:text-[#1ED760] rounded-lg transition active:scale-90"
+                              title={esFav ? 'Quitar de favoritos' : 'Añadir a favoritos'}
+                            >
+                              <Heart className={`w-4 h-4 ${esFav ? 'fill-current text-[#1ED760]' : ''}`} />
+                            </button>
+
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSongToAddToFolder(cancion);
+                                setShowAddToFolderModal(true);
+                              }}
+                              className="p-2 text-gray-400 hover:text-white rounded-lg transition active:scale-90"
+                              title="Agregar a carpeta"
+                            >
+                              <FolderPlus className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                seleccionarCancion(cancion);
+                              }}
+                              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white text-white hover:text-black flex items-center justify-center transition active:scale-95 ml-1"
+                              title={sonando ? 'Pausar' : 'Reproducir'}
+                            >
+                              {sonando ? (
+                                <Pause className="w-3.5 h-3.5 fill-current" />
+                              ) : (
+                                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================
+                VISTA 3: CARPETAS (TODAS LAS PLAYLISTS COMPLETAS)
+                ======================================================== */}
+            {activeFilter === 'carpetas' && (
+              <div className="space-y-4 animate-fade-in pt-1">
+                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-[#1c1c1e] to-[#252528] rounded-2xl border border-white/10 shadow-lg">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Folder className="w-5 h-5 text-blue-400" />
+                      <h2 className="text-xl sm:text-2xl font-black text-white">Carpetas de Audios & Playlists</h2>
+                    </div>
+                    <p className="text-xs text-gray-300 mt-1 font-medium">
+                      {folders.length} carpetas organizadas • Toca cualquier carpeta para abrirla
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowUploadModal(true)}
+                    className="px-3.5 py-2 rounded-full bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
+                  >
+                    <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                    <span>+ Subir a Carpeta</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {folders.map((folder) => {
+                    const count = obtenerCancionesCarpeta(folder).length;
+                    return (
+                      <div
+                        key={folder.id}
+                        onClick={() => setSelectedFolder(folder)}
+                        className="group flex items-center p-2.5 bg-[#1C1C1E] hover:bg-[#252528] rounded-xl border border-white/5 hover:border-white/20 cursor-pointer transition shadow-md active:scale-[0.98]"
+                      >
+                        <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 shadow bg-neutral-900 mr-3">
+                          {renderCover(folder.coverKey, 'w-full h-full object-cover')}
+                        </div>
+                        <div className="flex-1 min-w-0 pr-2">
+                          <h4 className="text-sm font-black text-white truncate leading-snug group-hover:text-[#1ED760] transition">
+                            {folder.titulo}
+                          </h4>
+                          <p className="text-xs text-gray-400 truncate mt-0.5">
+                            {folder.subtitulo || folder.descripcion}
+                          </p>
+                          <span className="inline-block mt-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                            {count} {count === 1 ? 'audio' : 'audios'}
+                          </span>
+                        </div>
+                        <Play className="w-4 h-4 text-gray-400 group-hover:text-white shrink-0 ml-1" />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================
+                VISTA 4: FAVORITAS (TUS TEMAS CON CORAZÓN 💚)
+                ======================================================== */}
+            {activeFilter === 'favoritas' && (
+              <div className="space-y-4 animate-fade-in pt-1">
+                {(() => {
+                  const listaTodas = songs.length > 0 ? songs : canciones;
+                  const favoritasList = listaTodas.filter((s) => favorites.includes(String(s.id)));
+
+                  return (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-gradient-to-r from-pink-950/40 via-purple-950/40 to-[#1c1c1e] rounded-2xl border border-pink-500/30 shadow-lg">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <Heart className="w-5 h-5 text-[#1ED760] fill-current" />
+                            <h2 className="text-xl sm:text-2xl font-black text-white">Tus Canciones Favoritas</h2>
+                          </div>
+                          <p className="text-xs text-gray-300 mt-1 font-medium">
+                            {favoritasList.length} temas marcados con 💚
+                          </p>
+                        </div>
+
+                        {favoritasList.length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => seleccionarCancion(favoritasList[0])}
+                              className="px-3.5 py-2 rounded-full bg-[#1ED760] hover:bg-[#1db954] text-black font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>Reproducir Favoritas</span>
+                            </button>
+                            <button
+                              onClick={reproducirAleatorio}
+                              className="px-3.5 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center gap-1.5 border border-white/10 active:scale-95 transition"
+                            >
+                              <Shuffle className="w-3.5 h-3.5 text-[#1ED760]" />
+                              <span>Aleatorio</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {favoritasList.length === 0 ? (
+                        <div className="p-10 text-center bg-[#181818] rounded-2xl border border-white/5 space-y-3">
+                          <Heart className="w-12 h-12 text-pink-500/50 mx-auto" />
+                          <p className="text-base font-bold text-white">Aún no tienes canciones favoritas</p>
+                          <p className="text-xs text-gray-400 max-w-sm mx-auto">
+                            Toca el corazón <strong className="text-emerald-400">💚</strong> en cualquier canción de tu biblioteca para guardarla en esta lista de acceso rápido.
+                          </p>
+                          <div className="pt-2">
+                            <button
+                              onClick={() => setActiveFilter('canciones')}
+                              className="px-4 py-2 bg-[#1ED760] text-black font-bold text-xs rounded-full shadow hover:bg-[#1db954] transition active:scale-95"
+                            >
+                              Explorar canciones
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {favoritasList.map((cancion, idx) => {
+                            const esActual = currentSong?.id === cancion.id;
+                            const sonando = esActual && isPlaying;
+
+                            return (
+                              <div
+                                key={cancion.id}
+                                onClick={() => seleccionarCancion(cancion)}
+                                className={`group flex items-center px-3 py-2.5 rounded-xl cursor-pointer transition select-none ${
+                                  esActual
+                                    ? 'bg-white/10 text-white border border-[#1ED760]/40 shadow-md'
+                                    : 'hover:bg-white/5 text-gray-200 bg-[#161616]'
+                                }`}
+                              >
+                                <div className="w-7 flex items-center justify-center shrink-0">
+                                  {sonando ? (
+                                    <div className="flex items-end gap-0.5 h-3.5">
+                                      <span className="w-1 bg-[#1ED760] h-full animate-bounce rounded-full" />
+                                      <span className="w-1 bg-[#1ED760] h-2 animate-bounce rounded-full [animation-delay:0.2s]" />
+                                      <span className="w-1 bg-[#1ED760] h-3 animate-bounce rounded-full [animation-delay:0.4s]" />
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs font-semibold text-gray-400 group-hover:hidden">
+                                      {idx + 1}
+                                    </span>
+                                  )}
+                                  {!sonando && (
+                                    <Play className="w-3.5 h-3.5 text-white hidden group-hover:block ml-0.5 fill-current" />
+                                  )}
+                                </div>
+
+                                <div className="w-11 h-11 rounded-lg overflow-hidden shrink-0 mx-2 shadow bg-neutral-900 border border-white/5">
+                                  {renderCover(cancion.cover_url || cancion.cover, 'w-full h-full object-cover')}
+                                </div>
+
+                                <div className="flex-1 min-w-0 pr-2">
+                                  <p className={`text-sm font-bold truncate leading-tight ${esActual ? 'text-[#1ED760]' : 'text-white'}`}>
+                                    {cancion.title || cancion.titulo}
+                                  </p>
+                                  <p className="text-xs text-gray-400 truncate mt-0.5">
+                                    {cancion.artist || cancion.artista}
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleFavorite(cancion);
+                                    }}
+                                    className="p-2 text-[#1ED760] hover:text-white rounded-lg transition active:scale-90"
+                                    title="Quitar de favoritas"
+                                  >
+                                    <Heart className="w-4 h-4 fill-current" />
+                                  </button>
+
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      seleccionarCancion(cancion);
+                                    }}
+                                    className="w-8 h-8 rounded-full bg-white/10 hover:bg-white text-white hover:text-black flex items-center justify-center transition active:scale-95 ml-1"
+                                    title={sonando ? 'Pausar' : 'Reproducir'}
+                                  >
+                                    {sonando ? (
+                                      <Pause className="w-3.5 h-3.5 fill-current" />
+                                    ) : (
+                                      <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </>
+        ) : null}
+
+        {/* ==========================================
+            PESTAÑA: BUSCAR
+            ========================================== */}
+        {activeTab === 'buscar' && (
+          <div className="space-y-4 pt-1">
+            <h2 className="text-2xl font-black text-white">Buscar</h2>
+            <div className="relative">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="¿Qué deseas escuchar?"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-3 bg-[#242424] border border-[#333333] rounded-xl text-sm text-white placeholder-gray-400 focus:outline-none focus:border-[#1ED760] transition"
+              />
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <h3 className="text-sm font-bold text-gray-300">Pistas y Artistas disponibles</h3>
+              {filteredSongs.map((cancion) => (
+                <div
+                  key={cancion.id}
+                  onClick={() => seleccionarCancion(cancion)}
+                  className="flex items-center justify-between p-2.5 bg-[#1C1C1C] hover:bg-[#242424] rounded-lg cursor-pointer transition"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    {renderCover(cancion.cover_url || cancion.cover, 'w-10 h-10')}
+                    <div className="min-w-0">
+                      <p className={`text-sm font-bold truncate ${currentSong?.id === cancion.id ? 'text-[#1ED760]' : 'text-white'}`}>
+                        {cancion.title || cancion.titulo}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">{cancion.artist || cancion.artista}</p>
+                    </div>
+                  </div>
+                  <Play className="w-4 h-4 text-gray-400 group-hover:text-white" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ==========================================
+            PESTAÑA: TU BIBLIOTECA (SUPABASE STORAGE)
+            ========================================== */}
+        {activeTab === 'biblioteca' && (
+          <div className="space-y-4 pt-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-2xl font-black text-white">Tu biblioteca</h2>
+                <p className="text-xs text-blue-400 font-medium">Música propia subida</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => multiFileInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-full bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
+                  title="Subir múltiples archivos MP3"
+                >
+                  <Music className="w-3.5 h-3.5" />
+                  <span>Subir múltiples MP3</span>
+                </button>
+                <button
+                  onClick={() => folderInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-full bg-[#2A2A2A] hover:bg-[#333333] border border-white/10 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
+                  title="Subir carpeta entera de música"
+                >
+                  <Folder className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Subir carpeta</span>
+                </button>
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="px-3 py-1.5 rounded-full bg-[#1ED760] hover:bg-[#1db954] text-black font-bold text-xs flex items-center gap-1 shadow active:scale-95 transition"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Con IA</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Tarjeta de estado de sesión admin */}
+            <div className="p-3 bg-[#1C1C1E] border border-white/10 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <ShieldCheck className="w-5 h-5 text-blue-400 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white">
+                    {user ? user.email : 'Modo Visitante'}
+                  </p>
+                  <p className="text-[11px] text-gray-400">
+                    {user ? 'Sesión de Administrador iniciada' : 'Inicia sesión para administrar archivos'}
+                  </p>
+                </div>
+              </div>
+              {user ? (
+                <button
+                  onClick={handleLogout}
+                  className="px-2.5 py-1 text-[11px] font-semibold bg-red-950/60 text-red-300 border border-red-500/30 rounded-lg hover:bg-red-900/60 transition"
+                >
+                  Cerrar
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowLoginModal(true)}
+                  className="px-2.5 py-1 text-[11px] font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition"
+                >
+                  Ingresar
+                </button>
+              )}
+            </div>
+
+            {/* Lista de canciones del usuario */}
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-gray-300">Tus pistas de música</h3>
+                {(songs.length > 0 || canciones.length > 0) && (
+                  <span className="text-xs text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                    {(songs.length > 0 ? songs : canciones).length} canciones
+                  </span>
+                )}
+              </div>
+
+              {(songs.length > 0 || canciones.length > 0) ? (
+                (songs.length > 0 ? songs : canciones).map((song) => {
+                  const isSelected = currentSong?.id === song.id;
+                  return (
+                    <div
+                      key={song.id}
+                      onClick={() => seleccionarCancion(song)}
+                      className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition ${
+                        isSelected ? 'bg-[#202020] border border-[#1ED760]/60' : 'bg-[#181818] hover:bg-[#222222]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {renderCover(song.cover_url || song.cover, 'w-11 h-11')}
+                        <div className="min-w-0">
+                          <p className={`text-xs sm:text-sm font-bold truncate ${isSelected ? 'text-[#1ED760]' : 'text-white'}`}>
+                            {song.title || song.titulo}
+                          </p>
+                          <p className="text-[11px] text-gray-400 truncate">{song.artist || song.artista}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => solicitarEliminarCancion(song, e)}
+                          className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
+                          title="Eliminar canción"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            seleccionarCancion(song);
+                          }}
+                          className="w-8 h-8 rounded-full bg-white/10 hover:bg-white text-white hover:text-black flex items-center justify-center transition"
+                        >
+                          {isSelected && isPlaying ? (
+                            <Pause className="w-4 h-4 fill-current" />
+                          ) : (
+                            <Play className="w-4 h-4 fill-current ml-0.5" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center bg-[#181818] rounded-2xl border border-white/5 space-y-3">
+                  <Music className="w-10 h-10 text-gray-500 mx-auto" />
+                  <p className="text-sm font-bold text-white">Aún no has subido canciones</p>
+                  <p className="text-xs text-gray-400 max-w-sm mx-auto">
+                    Selecciona múltiples archivos MP3 o una carpeta completa para reproducirlos aquí.
+                  </p>
+                  <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+                    <button
+                      onClick={() => multiFileInputRef.current?.click()}
+                      className="px-4 py-2 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-bold text-xs rounded-full shadow-lg flex items-center gap-2 active:scale-95 transition"
+                    >
+                      <Music className="w-4 h-4" />
+                      <span>Subir múltiples MP3</span>
+                    </button>
+                    <button
+                      onClick={() => folderInputRef.current?.click()}
+                      className="px-4 py-2 bg-[#282828] hover:bg-[#333333] border border-white/10 text-white font-bold text-xs rounded-full flex items-center gap-2 active:scale-95 transition"
+                    >
+                      <Folder className="w-4 h-4 text-blue-400" />
+                      <span>Subir carpeta</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ==========================================
+          MINI PLAYER FLOTANTE (DONDE SE DA PLAY)
+          Con opción de agregar a cualquier carpeta y cambiar música directamente desde aquí
+          ========================================== */}
+      <div className="fixed bottom-16 sm:bottom-18 left-2 right-2 sm:left-4 sm:right-4 z-40">
+        <div
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onClick={() => {
+            if (currentSong) {
+              setShowExpandedPlayer(true);
+            }
+          }}
+          className="bg-gradient-to-r from-[#580816] via-[#6a0a1c] to-[#450510] rounded-xl p-2.5 sm:p-3 shadow-2xl transition border border-red-900/50 relative overflow-hidden backdrop-blur-md cursor-pointer select-none flex flex-col gap-1.5 active:scale-[0.99]"
+          title="Toca para abrir el reproductor en pantalla completa"
+        >
+          {/* Fila Principal: Portada + Info + Controles de Reproducción */}
+          <div className="flex items-center justify-between gap-2">
+            {/* Izquierda: Portada + Título + Artista */}
+            <div
+              className="flex items-center gap-2.5 sm:gap-3 min-w-0 cursor-pointer flex-1 mr-1"
+            >
+              {/* Cuadro de portada con carátula o icono */}
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-lg overflow-hidden shrink-0 shadow-lg border border-white/20 bg-[#881337] flex items-center justify-center">
+                {currentSong ? (
+                  renderCover(currentSong.cover_url || currentSong.cover, 'w-full h-full object-cover')
+                ) : (
+                  <Music className="w-5 h-5 sm:w-6 sm:h-6 text-white/70" />
+                )}
+              </div>
+
+              {/* Título y Artistas */}
+              <div className="min-w-0 flex-1">
+                <p className="text-xs sm:text-base font-black text-white truncate leading-tight">
+                  {currentSong ? (currentSong.title || currentSong.titulo) : 'Sin canción en reproducción'}
+                </p>
+                <p className="text-[11px] sm:text-xs text-red-200/90 truncate font-semibold mt-0.5">
+                  {currentSong ? (currentSong.artist || currentSong.artista) : 'Sube tus MP3 o carpetas de música'}
+                </p>
+              </div>
+            </div>
+
+            {/* Derecha: Controles completos (Aleatorio, Anterior, Play/Pausa, Siguiente, Repetir, Carpeta, Lista) */}
+            <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+              {/* 1. Botón: Aleatorio (Shuffle) */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleShuffle();
+                }}
+                className={`p-1.5 sm:p-2 rounded-full transition active:scale-90 relative ${
+                  isShuffle ? 'text-[#1ED760] bg-white/10' : 'text-white/60 hover:text-white'
+                }`}
+                title={isShuffle ? 'Modo aleatorio activado' : 'Activar aleatorio'}
+              >
+                <Shuffle className="w-4 h-4 sm:w-4.5 sm:h-4.5 stroke-[2.2]" />
+                {isShuffle && (
+                  <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#1ED760]" />
+                )}
+              </button>
+
+              {/* 2. Botón: Canción Anterior */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  reproducirAnterior();
+                }}
+                className="p-1.5 sm:p-2 text-white/80 hover:text-white transition active:scale-90"
+                title="Pista anterior"
+              >
+                <SkipBack className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+              </button>
+
+              {/* 3. Botón: PLAY / PAUSA */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePlay();
+                }}
+                className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-white text-black hover:bg-gray-100 flex items-center justify-center hover:scale-105 active:scale-95 transition shadow-xl shrink-0"
+                title={isPlaying ? 'Pausar' : 'Reproducir'}
+              >
+                {isPlaying ? (
+                  <Pause className="w-5 h-5 sm:w-5.5 sm:h-5.5 fill-current" />
+                ) : (
+                  <Play className="w-5 h-5 sm:w-5.5 sm:h-5.5 fill-current ml-0.5" />
+                )}
+              </button>
+
+              {/* 4. Botón: Canción Siguiente */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  reproducirSiguiente();
+                }}
+                className="p-1.5 sm:p-2 text-white/80 hover:text-white transition active:scale-90"
+                title="Siguiente pista"
+              >
+                <SkipForward className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+              </button>
+
+              {/* 5. Botón: Repetir (Repeat) */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleRepeat();
+                }}
+                className={`p-1.5 sm:p-2 rounded-full transition active:scale-90 relative ${
+                  repeatMode !== 'off' ? 'text-[#1ED760] bg-white/10' : 'text-white/60 hover:text-white'
+                }`}
+                title={
+                  repeatMode === 'one'
+                    ? 'Repetir canción actual'
+                    : repeatMode === 'all'
+                    ? 'Repetir lista completa'
+                    : 'Activar repetición'
+                }
+              >
+                {repeatMode === 'one' ? (
+                  <Repeat1 className="w-4 h-4 sm:w-4.5 sm:h-4.5 stroke-[2.2]" />
+                ) : (
+                  <Repeat className="w-4 h-4 sm:w-4.5 sm:h-4.5 stroke-[2.2]" />
+                )}
+                {repeatMode !== 'off' && (
+                  <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#1ED760]" />
+                )}
+              </button>
+
+              {/* 6. Botón: Agregar a cualquier carpeta desde el reproductor */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (currentSong) {
+                    setSongToAddToFolder(currentSong);
+                    setShowAddToFolderModal(true);
+                  }
+                }}
+                className="p-1.5 sm:p-2 rounded-full bg-white/10 hover:bg-white/20 text-emerald-400 hover:text-white transition active:scale-90 shadow-sm"
+                title="Agregar canción actual a cualquier carpeta"
+              >
+                <FolderPlus className="w-4 h-4 sm:w-4.5 sm:h-4.5 stroke-[2.2]" />
+              </button>
+
+              {/* 7. Botón: Cambiar música directamente desde aquí */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowChangeSongModal(true);
+                }}
+                className="p-1.5 sm:p-2 rounded-full bg-white/10 hover:bg-white/20 text-yellow-300 hover:text-white transition active:scale-90 shadow-sm"
+                title="Cambiar música / Explorar canciones"
+              >
+                <ListMusic className="w-4 h-4 sm:w-4.5 sm:h-4.5 stroke-[2.2]" />
+              </button>
+            </div>
+          </div>
+
+          {/* Fila Inferior: Barra de progreso interactiva (Seek: click y arrastre para adelantar/retroceder) */}
+          <div
+            className="w-full flex items-center gap-2 px-0.5 select-none pt-0.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="text-[10px] sm:text-xs font-mono text-gray-300 w-8 text-right select-none tabular-nums shrink-0">
+              {formatTime(currentTime)}
+            </span>
+            <div className="relative flex-1 flex items-center group py-1.5 cursor-pointer">
+              {/* Pista de fondo de progreso */}
+              <div className="w-full h-1.5 sm:h-2 bg-black/60 rounded-full overflow-hidden shadow-inner">
+                <div
+                  className="h-full bg-gradient-to-r from-emerald-500 to-[#1ED760] rounded-full transition-all duration-75 relative"
+                  style={{ width: `${duration ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0}%` }}
+                />
+              </div>
+              {/* Input range interactivo transparente sobrepuesto para Seek suave en táctil y mouse */}
+              <input
+                type="range"
+                min={0}
+                max={duration || 100}
+                step="0.1"
+                value={currentTime}
+                onChange={handleSeek}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                title="Adelantar o retroceder (Seek)"
+              />
+            </div>
+            <span className="text-[10px] sm:text-xs font-mono text-gray-300 w-8 text-left select-none tabular-nums shrink-0">
+              {formatTime(duration)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ==========================================
+          BARRA DE NAVEGACIÓN INFERIOR (MÁS GRANDE Y CÓMODA)
+          Inicio, Buscar, Tu biblioteca, Crear
+          ========================================== */}
+      <footer className="fixed bottom-0 left-0 right-0 h-16 bg-black border-t border-neutral-900 px-4 flex items-center justify-around z-40 select-none">
+        {/* Tab 1: Inicio */}
+        <button
+          onClick={() => {
+            setActiveTab('inicio');
+            setSelectedFolder(null);
+          }}
+          className={`flex flex-col items-center justify-center gap-1 transition py-1 ${
+            activeTab === 'inicio' && !selectedFolder ? 'text-[#1ED760] font-black' : 'text-gray-400 hover:text-gray-200 font-semibold'
+          }`}
+        >
+          <Home className={`w-6 h-6 ${activeTab === 'inicio' && !selectedFolder ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+          <span className="text-xs">Inicio</span>
+        </button>
+
+        {/* Tab 2: Buscar */}
+        <button
+          onClick={() => setActiveTab('buscar')}
+          className={`flex flex-col items-center justify-center gap-1 transition py-1 ${
+            activeTab === 'buscar' ? 'text-[#1ED760] font-black' : 'text-gray-400 hover:text-gray-200 font-semibold'
+          }`}
+        >
+          <Search className={`w-6 h-6 ${activeTab === 'buscar' ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+          <span className="text-xs">Buscar</span>
+        </button>
+
+        {/* Tab 3: Tu biblioteca */}
+        <button
+          onClick={() => setActiveTab('biblioteca')}
+          className={`flex flex-col items-center justify-center gap-1 transition py-1 ${
+            activeTab === 'biblioteca' ? 'text-[#1ED760] font-black' : 'text-gray-400 hover:text-gray-200 font-semibold'
+          }`}
+        >
+          <Library className={`w-6 h-6 ${activeTab === 'biblioteca' ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
+          <span className="text-xs">Tu biblioteca</span>
+        </button>
+
+        {/* Tab 4: Crear (+ Subir Canción con IA) */}
+        <button
+          onClick={() => {
+            setShowUploadModal(true);
+          }}
+          className="flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-pink-400 transition font-semibold py-1"
+        >
+          <Plus className="w-6 h-6 stroke-[2.2] text-pink-400" />
+          <span className="text-xs text-pink-300 font-bold">Subir MP3</span>
+        </button>
+      </footer>
+
+      {/* ==========================================
+          MODAL: SUBIR CANCIÓN CON DEEPSEEK IA
+          ========================================== */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1E1E1E] border border-[#383838] rounded-2xl w-full max-w-lg p-6 shadow-2xl relative max-h-[92vh] overflow-y-auto">
+            <button
+              onClick={() => {
+                if (!isUploading) setShowUploadModal(false);
+              }}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-pink-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-pink-600/30">
+                <Sparkles className="w-6 h-6 text-yellow-300" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-white">Subir MP3 con DeepSeek IA</h3>
+                <p className="text-xs text-pink-400 font-semibold">
+                  Nombre inteligente, artista y portada automática
+                </p>
+              </div>
+            </div>
+
+            {/* 4. Botones rápidos para subir múltiples archivos MP3 y carpetas enteras */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-4">
+              <button
+                type="button"
+                onClick={() => multiFileInputRef.current?.click()}
+                className="p-3 rounded-xl bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition active:scale-95"
+                title="Selecciona varios archivos MP3 a la vez"
+              >
+                <Music className="w-4 h-4 text-white" />
+                <span>Subir múltiples MP3</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => folderInputRef.current?.click()}
+                className="p-3 rounded-xl bg-[#262626] hover:bg-[#333333] border border-white/10 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md transition active:scale-95"
+                title="Selecciona una carpeta completa de música de tu dispositivo"
+              >
+                <Folder className="w-4 h-4 text-blue-400" />
+                <span>Subir carpeta entera</span>
+              </button>
+            </div>
+
+            {/* Inputs ocultos para subida múltiple y carpetas completas */}
+            <input
+              ref={multiFileInputRef}
+              type="file"
+              multiple
+              accept="audio/mpeg,audio/mp3,.mp3,audio/*"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  subirMultiplesArchivos(e.target.files);
+                }
+              }}
+            />
+            <input
+              ref={folderInputRef}
+              type="file"
+              {...({ webkitdirectory: '', directory: '', multiple: true } as any)}
+              accept="audio/*,.mp3"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  subirMultiplesArchivos(e.target.files);
+                }
+              }}
+            />
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (selectedFile) {
+                  subirCancion(selectedFile);
+                }
+              }}
+              className="space-y-4 text-sm"
+            >
+              {/* Selector de Archivo MP3 Individual con IA */}
+              <div>
+                <label className="block text-xs font-bold text-gray-200 mb-1.5 uppercase tracking-wide">
+                  O selecciona archivo individual con IA <span className="text-pink-500">*</span>
+                </label>
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-[#383838] hover:border-pink-500 rounded-xl p-4 text-center cursor-pointer transition bg-[#141414] active:scale-[0.99]"
+                >
+                  <Music className="w-9 h-9 text-pink-400 mx-auto mb-2" />
+                  {selectedFile ? (
+                    <div>
+                      <p className="text-sm font-bold text-emerald-400 truncate">
+                        {selectedFile.name}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5 font-medium">
+                        {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB • Clic para cambiar
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-sm text-gray-200 font-semibold">Toca aquí para elegir tu archivo MP3</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        La IA DeepSeek detectará automáticamente el título, artista y diseñará la foto.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="audio/mpeg,audio/mp3,.mp3,audio/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      setSelectedFile(f);
+                      // 1. Extracción instantánea de ID3 y parsing heurístico previo
+                      const id3 = await extractAudioMetadataFromFile(f);
+                      const fast = parseSmartAudioName(f.name);
+                      const initialTitle = id3.title || fast.titulo;
+                      const initialArtist = id3.artist || fast.artista;
+                      setCustomTitle(initialTitle);
+                      setCustomArtist(initialArtist);
+                      if (id3.coverUrl) {
+                        setCoverPreviewUrl(id3.coverUrl);
+                        setCustomCoverUrl(id3.coverUrl);
+                      }
+                      if (fast.sugerenciaCarpeta) setTargetFolderId(fast.sugerenciaCarpeta);
+
+                      // 2. Análisis y nombramiento inteligente con IA (DeepSeek & Gemini)
+                      await analizarAudioConIA(f, id3.title || fast.titulo, id3.artist || fast.artista);
+                    }
+                  }}
+                />
+              </div>
+
+              {/* Indicador de Estado de la IA DeepSeek / Gemini */}
+              {isAiAnalyzing && (
+                <div className="p-3.5 rounded-xl bg-gradient-to-r from-pink-950/70 via-purple-950/70 to-indigo-950/70 border border-pink-500/50 flex items-center gap-3 text-xs text-pink-200 animate-pulse shadow-lg">
+                  <div className="w-5 h-5 border-2 border-pink-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                  <div>
+                    <p className="font-extrabold text-white text-sm">🤖 IA identificando canción y artista...</p>
+                    <p className="text-[11px] text-pink-200/90 font-medium">Extrayendo el nombre exacto, artista musical y diseñando portada 4K</p>
+                  </div>
+                </div>
+              )}
+
+              {aiIdentifiedInfo && !isAiAnalyzing && (
+                <div className="p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-500/50 flex items-center justify-between text-xs text-emerald-200 shadow-lg">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                    <div>
+                      <p className="text-[11px] text-emerald-400 font-bold uppercase tracking-wider">{aiIdentifiedInfo.fuenteIA || 'IA Musical'}</p>
+                      <p className="text-sm font-black text-white">
+                        {aiIdentifiedInfo.artista} <span className="text-gray-400 font-normal">—</span> {aiIdentifiedInfo.titulo}
+                      </p>
+                      <p className="text-[11px] text-emerald-300 font-medium">{aiIdentifiedInfo.genero}</p>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-[11px] font-black">
+                    Identificado
+                  </span>
+                </div>
+              )}
+
+              {/* Selector e Input oculto de Foto de Portada */}
+              <input
+                ref={coverInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) {
+                    setCoverFile(f);
+                    const localPreview = URL.createObjectURL(f);
+                    setCoverPreviewUrl(localPreview);
+                  }
+                }}
+              />
+
+              {/* Vista Previa de la Portada / Foto con IA o Subida */}
+              <div className="bg-[#141414] border border-white/10 rounded-xl p-3 flex items-center gap-3.5">
+                <div
+                  onClick={() => coverInputRef.current?.click()}
+                  className="w-16 h-16 rounded-lg overflow-hidden shrink-0 bg-neutral-900 border border-white/10 relative shadow-md cursor-pointer group"
+                  title="Toca para elegir o cambiar foto de portada"
+                >
+                  {coverPreviewUrl || customCoverUrl ? (
+                    <img
+                      src={coverPreviewUrl || customCoverUrl}
+                      alt="Portada"
+                      className="w-full h-full object-cover group-hover:opacity-80 transition"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-tr from-pink-700 to-indigo-700 text-white font-bold text-[10px] text-center p-1">
+                      <ImageIcon className="w-4 h-4 mb-0.5" />
+                      FOTO
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-white">Foto de portada (cover_url)</p>
+                    {coverFile ? (
+                      <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                        ✓ Foto propia
+                      </span>
+                    ) : customCoverUrl ? (
+                      <span className="text-[10px] text-pink-400 font-bold bg-pink-500/10 px-1.5 py-0.5 rounded">
+                        ✨ Foto IA
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-[11px] text-gray-400 line-clamp-1 mt-0.5">
+                    {coverFile
+                      ? coverFile.name
+                      : customCoverUrl
+                      ? 'Diseñada para el artista y canción'
+                      : 'Sube tu imagen o la IA la generará al instante'}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => coverInputRef.current?.click()}
+                      className="px-2.5 py-1 text-[11px] font-bold bg-pink-600/25 hover:bg-pink-600/40 text-pink-300 rounded-md transition flex items-center gap-1 active:scale-95"
+                    >
+                      <ImageIcon className="w-3 h-3" />
+                      <span>Subir foto propia</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={regenerarFotoIA}
+                      className="px-2.5 py-1 text-[11px] font-bold bg-white/10 hover:bg-white/20 text-gray-300 rounded-md transition flex items-center gap-1 active:scale-95"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Foto con IA</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Título y Artista */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-gray-200">
+                      Título de la canción <span className="text-pink-500">*</span>
+                    </label>
+                    {customTitle && <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.2 rounded">✨ Asignado por IA</span>}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Ej: El Tóxico"
+                    value={customTitle}
+                    onChange={(e) => setCustomTitle(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#141414] border border-[#333333] focus:border-pink-500 rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none font-medium"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-gray-200">
+                      Artista / Grupo <span className="text-pink-500">*</span>
+                    </label>
+                    {customArtist && customArtist.toLowerCase() !== 'desconocido' && (
+                      <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-1.5 py-0.2 rounded">✨ Reconocido</span>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Ej: Grupo Firme"
+                    value={customArtist}
+                    onChange={(e) => setCustomArtist(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#141414] border border-[#333333] focus:border-pink-500 rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none font-medium"
+                  />
+                </div>
+              </div>
+
+              {/* Selector de Carpeta Destino */}
+              <div>
+                <label className="block text-xs font-bold text-gray-200 mb-1">
+                  Guardar en Carpeta:
+                </label>
+                <select
+                  value={targetFolderId}
+                  onChange={(e) => setTargetFolderId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-[#141414] border border-[#333333] rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500 font-medium cursor-pointer"
+                >
+                  {folders.map((f) => (
+                    <option key={f.id} value={f.id} className="bg-[#1A1A1A] text-white">
+                      📁 {f.titulo} ({f.badge || 'Carpeta'})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  La canción se agregará a esta carpeta y a tu catálogo automáticamente.
+                </p>
+              </div>
+
+              {isUploading && (
+                <div className="p-3.5 rounded-xl bg-emerald-950/50 border border-emerald-500/40 flex items-center gap-2.5 text-xs text-emerald-200">
+                  <div className="w-4 h-4 border-2 border-[#1ED760] border-t-transparent rounded-full animate-spin shrink-0" />
+                  <span className="font-semibold">{uploadStatus || 'Subiendo archivo...'}</span>
+                </div>
+              )}
+
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  disabled={isUploading}
+                  onClick={() => setShowUploadModal(false)}
+                  className="flex-1 py-2.5 text-xs sm:text-sm font-semibold bg-[#282828] hover:bg-[#333333] text-gray-200 rounded-xl transition disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUploading || !selectedFile}
+                  className="flex-1 py-2.5 text-xs sm:text-sm font-bold bg-[#1ED760] hover:bg-[#1db954] text-black rounded-xl shadow-lg transition disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95"
+                >
+                  {isUploading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                      <span>Subiendo...</span>
+                    </>
+                  ) : (
+                    <span>Guardar y Reproducir</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: INICIAR SESIÓN / REGISTRO ADMIN
+          ========================================== */}
+      {showLoginModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1E1E1E] border border-[#383838] rounded-2xl w-full max-w-sm p-6 shadow-2xl relative">
+            <button
+              onClick={() => setShowLoginModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center">
+                {isSignUpMode ? <UserPlus className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">
+                  {isSignUpMode ? 'Registrar Administrador' : 'Acceso Administrador'}
+                </h3>
+                <p className="text-xs text-gray-400">Autenticación con Supabase Auth</p>
+              </div>
+            </div>
+
+            {authError && (
+              <div className="mb-4 p-3 bg-red-950/50 border border-red-500/40 rounded-xl flex items-start gap-2 text-xs text-red-200">
+                <AlertCircle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
+                <div className="flex-1">
+                  <span>{authError}</span>
+                  {authError.includes('Invalid login credentials') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSignUpMode(true);
+                        setAuthError(null);
+                      }}
+                      className="block mt-1 text-blue-400 hover:underline font-semibold"
+                    >
+                      ¿El usuario no existe? Crear cuenta aquí.
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleLogin} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-gray-200 mb-1">
+                  Correo Electrónico
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#141414] border border-[#333333] rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-200 mb-1">
+                  Contraseña
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#141414] border border-[#333333] rounded-xl text-xs text-white placeholder-gray-500 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  type="submit"
+                  disabled={isLoggingIn}
+                  className="w-full py-2.5 text-xs font-bold bg-[#1ED760] hover:bg-[#1db954] text-black rounded-xl shadow transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isLoggingIn ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                      <span>{isSignUpMode ? 'Registrando...' : 'Verificando...'}</span>
+                    </>
+                  ) : (
+                    <span>{isSignUpMode ? 'Crear Cuenta' : 'Iniciar Sesión'}</span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSignUpMode(!isSignUpMode);
+                    setAuthError(null);
+                  }}
+                  className="text-center text-[11px] text-gray-300 hover:text-blue-400 transition font-medium"
+                >
+                  {isSignUpMode
+                    ? '¿Ya tienes cuenta? Iniciar sesión'
+                    : '¿Primera vez? Registrar cuenta en Supabase'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: CENTRO DE PUBLICACIÓN Y DESPLIEGUE EN TU PROPIA URL
+          ========================================== */}
+      {showDeployModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1C1C1E] border border-[#3A3A3C] rounded-3xl w-full max-w-2xl p-5 sm:p-7 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowDeployModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1.5 rounded-xl bg-[#2C2C2E] transition active:scale-90"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3.5 mb-5">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/30 shrink-0">
+                <Rocket className="w-6 h-6" />
+              </div>
+              <div className="min-w-0 pr-6">
+                <h3 className="text-lg sm:text-xl font-black text-white truncate">
+                  Publicar FINANCIERA AARON
+                </h3>
+                <p className="text-xs text-blue-400 font-medium">
+                  Tu propia URL pública independiente de Google AI Studio para Android
+                </p>
+              </div>
+            </div>
+
+            {/* Pestañas de la Guía */}
+            <div className="flex items-center gap-1.5 p-1 bg-[#141416] rounded-2xl border border-white/5 mb-4 overflow-x-auto no-scrollbar">
+              <button
+                onClick={() => setDeployTab('vercel')}
+                className={`flex-1 min-w-[100px] py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                  deployTab === 'vercel'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>1. Vercel (Recomendado)</span>
+              </button>
+              <button
+                onClick={() => setDeployTab('android')}
+                className={`flex-1 min-w-[100px] py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                  deployTab === 'android'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Smartphone className="w-3.5 h-3.5 text-emerald-300" />
+                <span>2. Instalar en Android</span>
+              </button>
+              <button
+                onClick={() => setDeployTab('netlify')}
+                className={`flex-1 min-w-[100px] py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                  deployTab === 'netlify'
+                    ? 'bg-teal-600 text-white shadow-md'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>3. Netlify Drop</span>
+              </button>
+            </div>
+
+            {/* Garantía de Datos */}
+            <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex items-start gap-2.5 mb-4">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div className="text-xs">
+                <p className="font-bold text-emerald-300">¡Tu trabajo y canciones NO se perderán!</p>
+                <p className="text-[11px] text-emerald-200/80 mt-0.5 leading-relaxed">
+                  Tu base de datos y audios están alojados en la nube de Supabase (<code className="font-mono text-emerald-300">djqjagjaywphhaoonbdq.supabase.co</code>). Al desplegar en tu propia URL, la app se conectará automáticamente a tus mismas canciones, carpetas y usuarios.
+                </p>
+              </div>
+            </div>
+
+            {/* Contenido Pestaña 1: VERCEL */}
+            {deployTab === 'vercel' && (
+              <div className="space-y-3.5 text-xs text-gray-200 animate-fade-in">
+                <div className="p-4 rounded-2xl bg-[#242426] border border-[#38383A] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white text-sm flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                      <span>Despliegue automático con Vercel (Gratis y Permanente)</span>
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/40 font-bold">
+                      2 Minutos
+                    </span>
+                  </div>
+
+                  <p className="text-gray-300 text-[11px]">
+                    Vercel te proporcionará una URL pública HTTPS gratuita (como <code className="text-blue-300 font-mono">https://financiera-aaron.vercel.app</code>) y actualizará la app cada vez que hagas cambios.
+                  </p>
+
+                  <div className="space-y-2 text-[11px] text-gray-300 pl-1">
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-blue-600/30 text-blue-300 font-bold flex items-center justify-center shrink-0 text-[10px]">1</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-white">Tu repositorio de GitHub:</p>
+                        <div className="flex items-center justify-between gap-2 p-2 mt-1 rounded-xl bg-[#18181A] border border-white/10 font-mono text-blue-300 text-[11px]">
+                          <span className="truncate">https://github.com/mejiamejiaaaron-eng/Musicaaarospoty</span>
+                          <button
+                            onClick={() => copyText('https://github.com/mejiamejiaaaron-eng/Musicaaarospoty', 'Enlace de GitHub')}
+                            className="px-2 py-1 bg-[#282828] hover:bg-[#333333] text-white rounded-lg transition shrink-0 flex items-center gap-1 font-sans"
+                          >
+                            {copiedDeployText === 'Enlace de GitHub' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            <span>Copiar</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-blue-600/30 text-blue-300 font-bold flex items-center justify-center shrink-0 text-[10px]">2</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-white">Entra a Vercel:</p>
+                        <p className="mt-0.5">Ingresa a <strong className="text-white">vercel.com</strong> e inicia sesión con tu cuenta de GitHub.</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-blue-600/30 text-blue-300 font-bold flex items-center justify-center shrink-0 text-[10px]">3</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-white">Importa el proyecto:</p>
+                        <p className="mt-0.5">Haz clic en <strong className="text-white">&quot;Add New...&quot; &gt; &quot;Project&quot;</strong> y selecciona <strong className="text-white">Musicaaarospoty</strong>.</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-blue-600/30 text-blue-300 font-bold flex items-center justify-center shrink-0 text-[10px]">4</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-white">Configuración automática de Vite:</p>
+                        <p className="mt-0.5">Vercel detecta automáticamente: Framework: <strong className="text-white">Vite</strong> | Build Command: <code className="text-blue-300 font-mono">npm run build</code> | Output: <code className="text-blue-300 font-mono">dist</code>.</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-blue-600/30 text-blue-300 font-bold flex items-center justify-center shrink-0 text-[10px]">5</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-white">Presiona &quot;Deploy&quot;:</p>
+                        <p className="mt-0.5">En 40 segundos tendrás tu propia URL pública con certificado HTTPS para abrir en tu celular Android.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Contenido Pestaña 2: ANDROID PWA */}
+            {deployTab === 'android' && (
+              <div className="space-y-3.5 text-xs text-gray-200 animate-fade-in">
+                <div className="p-4 rounded-2xl bg-[#242426] border border-[#38383A] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white text-sm flex items-center gap-1.5">
+                      <Smartphone className="w-4 h-4 text-emerald-400" />
+                      <span>Cómo instalar FINANCIERA AARON en Android</span>
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
+                      Icono Propio
+                    </span>
+                  </div>
+
+                  <p className="text-gray-300 text-[11px]">
+                    No necesitas instalar Google AI Studio en tu celular. Tu app web cuenta con Service Worker y Web App Manifest para comportarse como una aplicación nativa de Android:
+                  </p>
+
+                  <div className="space-y-2.5 text-[11px] text-gray-300 pl-1">
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-emerald-600/30 text-emerald-300 font-bold flex items-center justify-center shrink-0 text-[10px]">1</span>
+                      <div>
+                        <p className="font-semibold text-white">Abre tu URL pública en Chrome:</p>
+                        <p className="mt-0.5">En tu celular Android, abre el navegador <strong className="text-white">Google Chrome</strong> y escribe tu URL (ej. <code className="text-emerald-300 font-mono">https://tu-app.vercel.app</code>).</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-emerald-600/30 text-emerald-300 font-bold flex items-center justify-center shrink-0 text-[10px]">2</span>
+                      <div>
+                        <p className="font-semibold text-white">Toca el banner o menú (⋮):</p>
+                        <p className="mt-0.5">Verás un aviso inferior que dice <strong className="text-emerald-400">&quot;Agregar FINANCIERA AARON a la pantalla principal&quot;</strong>. Si no aparece, toca los <strong className="text-white">tres puntos verticales (⋮)</strong> arriba a la derecha en Chrome.</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-emerald-600/30 text-emerald-300 font-bold flex items-center justify-center shrink-0 text-[10px]">3</span>
+                      <div>
+                        <p className="font-semibold text-white">Toca &quot;Instalar aplicación&quot;:</p>
+                        <p className="mt-0.5">Selecciona <strong className="text-emerald-400">&quot;Instalar aplicación&quot;</strong> o <strong className="text-emerald-400">&quot;Agregar a la pantalla principal&quot;</strong> y confirma presionando <strong className="text-white">&quot;Instalar&quot;</strong>.</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-emerald-600/30 text-emerald-300 font-bold flex items-center justify-center shrink-0 text-[10px]">4</span>
+                      <div>
+                        <p className="font-semibold text-white">¡Listo! Acceso directo con su propio icono:</p>
+                        <p className="mt-0.5 text-emerald-300 font-medium">Se creará el icono de FINANCIERA AARON en la pantalla de inicio de tu celular. Al tocarlo, se abrirá a pantalla completa sin barra de direcciones, sin Google AI Studio y con reproducción de fondo.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Contenido Pestaña 3: NETLIFY DROP */}
+            {deployTab === 'netlify' && (
+              <div className="space-y-3.5 text-xs text-gray-200 animate-fade-in">
+                <div className="p-4 rounded-2xl bg-[#242426] border border-[#38383A] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white text-sm flex items-center gap-1.5">
+                      <Upload className="w-4 h-4 text-teal-400" />
+                      <span>Netlify Drop (Arrastrar y Soltar sin código)</span>
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/40 font-bold">
+                      1 Minuto
+                    </span>
+                  </div>
+
+                  <p className="text-gray-300 text-[11px]">
+                    Si prefieres no usar GitHub ni comandos, puedes descargar el paquete compilado listo para desplegar y arrastrarlo directamente:
+                  </p>
+
+                  <div className="space-y-2.5 text-[11px] text-gray-300 pl-1">
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-teal-600/30 text-teal-300 font-bold flex items-center justify-center shrink-0 text-[10px]">1</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-white">Descarga el paquete compilado (.zip):</p>
+                        <p className="mt-0.5 text-gray-300">Ya está generado con HTML, Service Worker, Manifest, iconos PWA y todos los estilos:</p>
+                        <a
+                          href="/financiera-aaron-dist.zip"
+                          download="financiera-aaron-dist.zip"
+                          className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-[11px] shadow-md transition active:scale-95"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Descargar producción financiera-aaron-dist.zip</span>
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-teal-600/30 text-teal-300 font-bold flex items-center justify-center shrink-0 text-[10px]">2</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-white">Abre Netlify Drop en tu navegador:</p>
+                        <div className="flex items-center justify-between gap-2 p-2 mt-1 rounded-xl bg-[#18181A] border border-white/10 font-mono text-teal-300 text-[11px]">
+                          <span>https://app.netlify.com/drop</span>
+                          <button
+                            onClick={() => copyText('https://app.netlify.com/drop', 'Enlace Netlify Drop')}
+                            className="px-2 py-1 bg-[#282828] hover:bg-[#333333] text-white rounded-lg transition shrink-0 flex items-center gap-1 font-sans"
+                          >
+                            {copiedDeployText === 'Enlace Netlify Drop' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            <span>Copiar</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <span className="w-5 h-5 rounded-full bg-teal-600/30 text-teal-300 font-bold flex items-center justify-center shrink-0 text-[10px]">3</span>
+                      <div className="flex-1">
+                        <p className="font-semibold text-white">Arrastra y suelta el archivo .zip o la carpeta:</p>
+                        <p className="mt-0.5">Suelta el archivo descargado en la zona punteada de Netlify Drop. En 10 segundos te entregará tu URL pública HTTPS (ejemplo: <code className="text-teal-300 font-mono">https://financiera-aaron.netlify.app</code>) permanente y gratuita.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-3 pt-4 border-t border-white/10 mt-5">
+              <button
+                onClick={() => setDeployTab(deployTab === 'android' ? 'vercel' : 'android')}
+                className="py-2.5 px-4 text-xs font-bold bg-[#282828] hover:bg-[#333333] text-gray-200 rounded-xl transition flex items-center gap-1.5 active:scale-95"
+              >
+                {deployTab === 'android' ? <Globe className="w-3.5 h-3.5 text-blue-400" /> : <Smartphone className="w-3.5 h-3.5 text-emerald-400" />}
+                <span>{deployTab === 'android' ? 'Ver guía de Vercel' : 'Ver pasos de instalación Android'}</span>
+              </button>
+              <button
+                onClick={() => setShowDeployModal(false)}
+                className="py-2.5 px-6 text-xs font-bold bg-[#1ED760] hover:bg-[#1db954] text-black rounded-xl shadow-lg transition active:scale-95"
+              >
+                ¡Entendido!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: CONFIRMACIÓN PARA ELIMINAR CANCIÓN
+          ========================================== */}
+      {songToDelete && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1C1C1E] border border-red-500/40 rounded-3xl w-full max-w-md p-6 shadow-2xl relative animate-fade-in">
+            <button
+              onClick={() => setSongToDelete(null)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1.5 rounded-xl bg-[#2C2C2E] transition active:scale-90"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3.5 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-600/20 text-red-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0 pr-6">
+                <h3 className="text-base sm:text-lg font-black text-white truncate">
+                  ¿Eliminar canción?
+                </h3>
+                <p className="text-xs text-red-400 font-semibold">
+                  Esta acción es permanente
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-[#242426] border border-[#38383A] mb-4 flex items-center gap-3">
+              {renderCover(songToDelete.cover_url || songToDelete.cover, 'w-12 h-12')}
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-white truncate">{songToDelete.title || songToDelete.titulo}</p>
+                <p className="text-xs text-gray-400 truncate mt-0.5">{songToDelete.artist || songToDelete.artista}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-300 mb-5 leading-relaxed">
+              La canción se quitará de todas tus carpetas (buchonass, perreale, etc.) y se eliminará de la base de datos de Supabase.
+            </p>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSongToDelete(null)}
+                className="flex-1 py-2.5 text-xs sm:text-sm font-bold bg-[#282828] hover:bg-[#333333] text-gray-300 rounded-xl transition active:scale-95"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarEliminarCancion}
+                className="flex-1 py-2.5 text-xs sm:text-sm font-bold bg-red-600 hover:bg-red-500 text-white rounded-xl shadow-lg shadow-red-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Sí, eliminar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: CONFIRMACIÓN PARA ELIMINAR CARPETA
+          ========================================== */}
+      {folderToDelete && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1C1C1E] border border-red-500/40 rounded-3xl w-full max-w-md p-6 shadow-2xl relative animate-fade-in">
+            <button
+              onClick={() => setFolderToDelete(null)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1.5 rounded-xl bg-[#2C2C2E] transition active:scale-90"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3.5 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-red-600/20 text-red-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0 pr-6">
+                <h3 className="text-base sm:text-lg font-black text-white truncate">
+                  ¿Eliminar carpeta completa?
+                </h3>
+                <p className="text-xs text-red-400 font-semibold">
+                  {folderToDelete.titulo}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-300 mb-5 leading-relaxed">
+              ¿Estás seguro de que deseas eliminar la carpeta <strong className="text-white">&quot;{folderToDelete.titulo}&quot;</strong>? Las canciones dentro seguirán existiendo en tu biblioteca principal.
+            </p>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setFolderToDelete(null)}
+                className="flex-1 py-2.5 text-xs sm:text-sm font-bold bg-[#282828] hover:bg-[#333333] text-gray-300 rounded-xl transition active:scale-95"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarEliminarCarpeta}
+                className="flex-1 py-2.5 text-xs sm:text-sm font-bold bg-red-600 hover:bg-red-500 text-white rounded-xl shadow-lg shadow-red-600/30 transition active:scale-95 flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Sí, eliminar carpeta</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: AGREGAR CANCIÓN A CUALQUIER CARPETA (DESDE REPRODUCTOR)
+          ========================================== */}
+      {showAddToFolderModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1C1C1E] border border-[#3A3A3C] rounded-2xl w-full max-w-md p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => {
+                setShowAddToFolderModal(false);
+                setSongToAddToFolder(null);
+              }}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg bg-[#2C2C2E] transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                <FolderPlus className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base sm:text-lg font-black text-white truncate">
+                  Agregar a Carpeta
+                </h3>
+                <p className="text-xs text-gray-400 truncate">
+                  {songToAddToFolder?.titulo || currentSong?.titulo || 'Canción'} • {songToAddToFolder?.artista || currentSong?.artista}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-300 font-medium mb-3">
+              Selecciona a cuál de tus carpetas quieres añadir este audio:
+            </p>
+
+            {/* Lista de Carpetas Disponibles */}
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {folders.map((f) => {
+                const song = songToAddToFolder || currentSong;
+                const yaEsta = song
+                  ? f.canciones.some(
+                      (c) =>
+                        String(c.id) === String(song.id) ||
+                        (c.titulo.toLowerCase() === song.titulo.toLowerCase() &&
+                          c.artista.toLowerCase() === song.artista.toLowerCase())
+                    )
+                  : false;
+
+                return (
+                  <div
+                    key={f.id}
+                    onClick={() => {
+                      if (song) {
+                        if (yaEsta) {
+                          quitarCancionDeCarpeta(f.id, song.id);
+                        } else {
+                          agregarCancionACarpeta(f.id, song);
+                        }
+                      }
+                    }}
+                    className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition border ${
+                      yaEsta
+                        ? 'bg-emerald-950/40 border-emerald-500/40 hover:bg-emerald-900/40'
+                        : 'bg-[#242426] border-[#38383A] hover:bg-[#2C2C2E]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {renderCover(f.coverKey, 'w-10 h-10')}
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-white truncate">
+                          {f.titulo}
+                        </p>
+                        <p className="text-[11px] text-gray-400 truncate">
+                          {f.canciones.length} audios • {f.badge || 'Carpeta'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      {yaEsta ? (
+                        <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          <span>Incluida</span>
+                        </span>
+                      ) : (
+                        <span className="px-3 py-1 rounded-full bg-blue-600/30 text-blue-300 hover:bg-blue-600 hover:text-white text-xs font-bold flex items-center gap-1 transition">
+                          <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                          <span>Añadir</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-white/10 flex justify-end">
+              <button
+                onClick={() => {
+                  setShowAddToFolderModal(false);
+                  setSongToAddToFolder(null);
+                }}
+                className="w-full py-2.5 text-xs sm:text-sm font-bold bg-[#282828] hover:bg-[#333333] text-gray-200 rounded-xl transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: CAMBIAR MÚSICA DIRECTAMENTE DESDE EL REPRODUCTOR
+          ========================================== */}
+      {showChangeSongModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1C1C1E] border border-[#3A3A3C] rounded-2xl w-full max-w-lg p-6 shadow-2xl relative max-h-[88vh] flex flex-col">
+            <button
+              onClick={() => setShowChangeSongModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg bg-[#2C2C2E] transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4 shrink-0">
+              <div className="w-11 h-11 rounded-2xl bg-yellow-500/20 text-yellow-300 flex items-center justify-center">
+                <ListMusic className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-white">
+                  Cambiar Canción
+                </h3>
+                <p className="text-xs text-yellow-300 font-semibold">
+                  Toca cualquier audio para reproducirlo al instante
+                </p>
+              </div>
+            </div>
+
+            {/* Buscador Rápido de Pistas */}
+            <div className="relative mb-3 shrink-0">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+              <input
+                type="text"
+                placeholder="Buscar por canción o artista..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-[#141414] border border-[#333333] rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-yellow-400 font-medium"
+              />
+            </div>
+
+            {/* Lista de Canciones para Cambiar */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {filteredSongs.length === 0 ? (
+                <div className="p-6 text-center text-gray-400 space-y-3">
+                  <Music className="w-8 h-8 text-gray-500 mx-auto" />
+                  <p className="text-sm font-semibold text-white">No hay canciones disponibles</p>
+                  <p className="text-xs text-gray-400">Sube tus archivos MP3 o carpetas de música para reproducirlas.</p>
+                  <div className="flex justify-center gap-2 pt-1">
+                    <button
+                      onClick={() => {
+                        setShowChangeSongModal(false);
+                        multiFileInputRef.current?.click();
+                      }}
+                      className="px-3.5 py-1.5 bg-pink-600 text-white rounded-lg text-xs font-bold"
+                    >
+                      Subir múltiples MP3
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowChangeSongModal(false);
+                        folderInputRef.current?.click();
+                      }}
+                      className="px-3.5 py-1.5 bg-[#2A2A2A] text-white rounded-lg text-xs font-bold border border-white/10"
+                    >
+                      Subir Carpeta
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                filteredSongs.map((cancion) => {
+                  const esActual = currentSong?.id === cancion.id;
+                  return (
+                    <div
+                      key={cancion.id}
+                      onClick={() => {
+                        seleccionarCancion(cancion);
+                        setShowChangeSongModal(false);
+                      }}
+                      className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition ${
+                        esActual
+                          ? 'bg-yellow-500/20 border border-yellow-400/50 text-white'
+                          : 'bg-[#242426] hover:bg-[#2e2e30] text-gray-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {renderCover(cancion.cover_url || cancion.cover, 'w-11 h-11')}
+                        <div className="min-w-0">
+                          <p className={`text-sm font-bold truncate ${esActual ? 'text-yellow-300' : 'text-white'}`}>
+                            {cancion.title || cancion.titulo}
+                          </p>
+                          <p className="text-xs text-gray-400 truncate mt-0.5">
+                            {cancion.artist || cancion.artista}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {esActual && isPlaying ? (
+                          <div className="w-7 h-7 rounded-full bg-yellow-400 text-black flex items-center justify-center">
+                            <Pause className="w-3.5 h-3.5 fill-current" />
+                          </div>
+                        ) : (
+                          <div className="w-7 h-7 rounded-full bg-white/10 hover:bg-white hover:text-black text-white flex items-center justify-center transition">
+                            <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="mt-3 pt-3 border-t border-white/10 shrink-0 flex justify-end">
+              <button
+                onClick={() => setShowChangeSongModal(false)}
+                className="w-full py-2.5 text-xs sm:text-sm font-bold bg-[#282828] hover:bg-[#333333] text-gray-200 rounded-xl transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: AGREGAR MÚSICA DE LA BIBLIOTECA A LA CARPETA ACTUAL
+          ========================================== */}
+      {showAddMusicToCurrentFolderModal && selectedFolder && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1C1C1E] border border-[#3A3A3C] rounded-2xl w-full max-w-lg p-6 shadow-2xl relative max-h-[88vh] flex flex-col">
+            <button
+              onClick={() => setShowAddMusicToCurrentFolderModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg bg-[#2C2C2E] transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4 shrink-0">
+              <div className="w-11 h-11 rounded-2xl bg-blue-600/20 text-blue-400 flex items-center justify-center">
+                <FolderPlus className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base sm:text-lg font-black text-white truncate">
+                  Agregar a: {selectedFolder.titulo}
+                </h3>
+                <p className="text-xs text-blue-400 font-semibold">
+                  Selecciona canciones de tu biblioteca para añadirlas a esta carpeta
+                </p>
+              </div>
+            </div>
+
+            {/* Lista de Canciones para Agregar a la Carpeta */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {canciones.map((cancion) => {
+                const yaEsta = selectedFolder.canciones.some(
+                  (c) =>
+                    String(c.id) === String(cancion.id) ||
+                    (c.titulo.toLowerCase() === cancion.titulo.toLowerCase() &&
+                      c.artista.toLowerCase() === cancion.artista.toLowerCase())
+                );
+
+                return (
+                  <div
+                    key={cancion.id}
+                    className={`flex items-center justify-between p-2.5 rounded-xl border transition ${
+                      yaEsta
+                        ? 'bg-emerald-950/30 border-emerald-500/30'
+                        : 'bg-[#242426] border-[#38383A] hover:bg-[#2e2e30]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {renderCover(cancion.cover_url || cancion.cover, 'w-10 h-10')}
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-white truncate">
+                          {cancion.title || cancion.titulo}
+                        </p>
+                        <p className="text-xs text-gray-400 truncate mt-0.5">
+                          {cancion.artist || cancion.artista}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0">
+                      {yaEsta ? (
+                        <button
+                          onClick={() => quitarCancionDeCarpeta(selectedFolder.id, cancion.id)}
+                          className="px-3 py-1.5 rounded-lg bg-red-950/60 text-red-300 hover:bg-red-900/60 text-xs font-semibold flex items-center gap-1 transition"
+                          title="Quitar de esta carpeta"
+                        >
+                          <MinusCircle className="w-3.5 h-3.5" />
+                          <span>Quitar</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => agregarCancionACarpeta(selectedFolder.id, cancion)}
+                          className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1 shadow transition"
+                          title="Agregar a esta carpeta"
+                        >
+                          <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                          <span>Agregar</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-3 pt-3 border-t border-white/10 shrink-0 flex justify-end">
+              <button
+                onClick={() => setShowAddMusicToCurrentFolderModal(false)}
+                className="w-full py-2.5 text-xs sm:text-sm font-bold bg-[#282828] hover:bg-[#333333] text-gray-200 rounded-xl transition"
+              >
+                Listo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: GUÍA DE CONFIGURACIÓN RLS SUPABASE
+          ========================================== */}
+      {showRlsModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1E1E1E] border border-[#383838] rounded-2xl w-full max-w-lg p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowRlsModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-lg"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">
+                  Configurar Tabla 'songs' y Storage en Supabase
+                </h3>
+                <p className="text-xs text-emerald-400">
+                  Crea la tabla songs con persistencia (Título, Artista, Portada y Audio)
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4 text-xs text-gray-300">
+              <p>
+                Para guardar y recuperar tus canciones de forma permanente con su título, artista y foto de portada, ve al <strong className="text-white">SQL Editor</strong> de tu panel de Supabase, pega y ejecuta este script:
+              </p>
+
+              <div className="relative">
+                <pre className="p-3 bg-[#121212] border border-[#333333] rounded-xl font-mono text-[11px] text-emerald-400 overflow-x-auto leading-relaxed">
+                  {rlsSql}
+                </pre>
+                <button
+                  onClick={copyRlsSql}
+                  className="absolute top-2 right-2 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#282828] hover:bg-[#383838] text-white text-[11px] font-semibold transition shadow"
+                >
+                  {sqlCopied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Copiado</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copiar SQL</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowRlsModal(false)}
+                className="w-full py-2.5 text-xs font-bold bg-[#1ED760] hover:bg-[#1db954] text-black rounded-xl shadow transition"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          REPRODUCTOR A PANTALLA COMPLETA (FULLSCREEN PLAYER)
+          ========================================== */}
+      {showExpandedPlayer && currentSong && (
+        <div
+          className="fixed inset-0 z-50 bg-gradient-to-b from-[#580816] via-[#20050b] to-[#121212] flex flex-col text-white overflow-y-auto no-scrollbar select-none"
+          style={{ animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}
+        >
+          {/* Header Superior: Botón Flecha hacia abajo + Título + Opciones */}
+          <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-3.5 bg-[#580816]/70 backdrop-blur-md border-b border-white/5">
+            <button
+              onClick={() => setShowExpandedPlayer(false)}
+              className="p-2 -ml-2 rounded-full hover:bg-white/10 active:scale-90 transition text-white"
+              title="Minimizar reproductor"
+            >
+              <ChevronDown className="w-7 h-7" />
+            </button>
+
+            <div className="text-center min-w-0 px-2 flex-1">
+              <p className="text-[10px] sm:text-xs font-bold tracking-widest uppercase text-red-200/80">
+                {selectedFolder ? `Carpeta: ${selectedFolder.titulo}` : 'FINANCIERA AARON'}
+              </p>
+              <p className="text-xs sm:text-sm font-black text-white truncate">
+                {currentSong.title || currentSong.titulo}
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                setSongToAddToFolder(currentSong);
+                setShowAddToFolderModal(true);
+              }}
+              className="p-2 -mr-2 rounded-full hover:bg-white/10 active:scale-90 transition text-white/80 hover:text-white"
+              title="Agregar a carpeta"
+            >
+              <MoreVertical className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Contenido Principal con Portada en Grande, Controles y Letras */}
+          <div className="flex-1 max-w-md w-full mx-auto px-6 py-4 flex flex-col">
+            {/* 1. Portada del álbum en grande */}
+            <div className="w-full my-auto py-2 flex items-center justify-center">
+              <div className="w-full aspect-square max-w-[320px] sm:max-w-[360px] rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/15 bg-black/60 flex items-center justify-center">
+                {renderCover(currentSong.cover_url || currentSong.cover, 'w-full h-full object-cover')}
+              </div>
+            </div>
+
+            {/* 2. Título, Artista y Botón de Favorito */}
+            <div className="flex items-center justify-between gap-4 mt-4">
+              <div className="min-w-0 flex-1">
+                <h1 className="text-xl sm:text-2xl font-black text-white truncate leading-tight">
+                  {currentSong.title || currentSong.titulo}
+                </h1>
+                <p className="text-sm sm:text-base text-gray-300 font-semibold truncate mt-1">
+                  {currentSong.artist || currentSong.artista}
+                </p>
+              </div>
+              <button
+                onClick={() => toggleFavorite(currentSong)}
+                className="p-2 rounded-full text-white hover:text-emerald-400 active:scale-90 transition shrink-0"
+                title="Favorito"
+              >
+                <Heart
+                  className={`w-6 h-6 sm:w-7 sm:h-7 ${
+                    favorites.includes(String(currentSong.id))
+                      ? 'fill-current text-[#1ED760]'
+                      : 'text-gray-400'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* 3. Barra de progreso interactiva (Seek) */}
+            <div className="w-full mt-4 select-none">
+              <div className="relative flex items-center group py-2 cursor-pointer">
+                <div className="w-full h-1.5 sm:h-2 bg-white/20 rounded-full overflow-hidden shadow-inner">
+                  <div
+                    className="h-full bg-white group-hover:bg-[#1ED760] rounded-full transition-all duration-75 relative"
+                    style={{
+                      width: `${duration ? Math.min(100, Math.max(0, (currentTime / duration) * 100)) : 0}%`
+                    }}
+                  />
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={duration || 100}
+                  step="0.1"
+                  value={currentTime}
+                  onChange={handleSeek}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  title="Adelantar o retroceder"
+                />
+              </div>
+              <div className="flex justify-between items-center text-xs font-mono text-gray-400 mt-0.5 tabular-nums">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(duration)}</span>
+              </div>
+            </div>
+
+            {/* 4. Controles de Reproducción Principales */}
+            <div className="flex items-center justify-between gap-2 mt-4 px-1">
+              {/* Aleatorio */}
+              <button
+                onClick={toggleShuffle}
+                className={`p-2 rounded-full transition active:scale-90 relative ${
+                  isShuffle ? 'text-[#1ED760]' : 'text-gray-400 hover:text-white'
+                }`}
+                title="Modo aleatorio"
+              >
+                <Shuffle className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
+                {isShuffle && (
+                  <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#1ED760]" />
+                )}
+              </button>
+
+              {/* Anterior */}
+              <button
+                onClick={reproducirAnterior}
+                className="p-2 text-white hover:text-gray-200 active:scale-90 transition"
+                title="Canción anterior"
+              >
+                <SkipBack className="w-7 h-7 sm:w-8 sm:h-8 fill-current" />
+              </button>
+
+              {/* Play / Pausa */}
+              <button
+                onClick={togglePlay}
+                className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-white text-black hover:bg-gray-100 flex items-center justify-center shadow-2xl active:scale-95 hover:scale-105 transition"
+                title={isPlaying ? 'Pausar' : 'Reproducir'}
+              >
+                {isPlaying ? (
+                  <Pause className="w-8 h-8 fill-current" />
+                ) : (
+                  <Play className="w-8 h-8 fill-current ml-1" />
+                )}
+              </button>
+
+              {/* Siguiente */}
+              <button
+                onClick={reproducirSiguiente}
+                className="p-2 text-white hover:text-gray-200 active:scale-90 transition"
+                title="Siguiente canción"
+              >
+                <SkipForward className="w-7 h-7 sm:w-8 sm:h-8 fill-current" />
+              </button>
+
+              {/* Repetir */}
+              <button
+                onClick={toggleRepeat}
+                className={`p-2 rounded-full transition active:scale-90 relative ${
+                  repeatMode !== 'off' ? 'text-[#1ED760]' : 'text-gray-400 hover:text-white'
+                }`}
+                title="Repetición"
+              >
+                {repeatMode === 'one' ? (
+                  <Repeat1 className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
+                ) : (
+                  <Repeat className="w-5 h-5 sm:w-6 sm:h-6 stroke-[2.2]" />
+                )}
+                {repeatMode !== 'off' && (
+                  <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#1ED760]" />
+                )}
+              </button>
+            </div>
+
+            {/* Fila secundaria: Añadir a carpeta + Cambiar canción */}
+            <div className="flex items-center justify-between text-xs text-gray-400 mt-5 pt-3 border-t border-white/10 px-2">
+              <button
+                onClick={() => {
+                  setSongToAddToFolder(currentSong);
+                  setShowAddToFolderModal(true);
+                }}
+                className="flex items-center gap-1.5 hover:text-white transition active:scale-95"
+              >
+                <FolderPlus className="w-4 h-4 text-emerald-400" />
+                <span>Añadir a carpeta</span>
+              </button>
+
+              <button
+                onClick={() => setShowChangeSongModal(true)}
+                className="flex items-center gap-1.5 hover:text-white transition active:scale-95"
+              >
+                <ListMusic className="w-4 h-4 text-yellow-300" />
+                <span>Cambiar canción</span>
+              </button>
+            </div>
+
+            {/* Control de volumen rápido en el reproductor */}
+            <div className="flex items-center gap-3 mt-6 pt-4 border-t border-white/10 px-2 text-xs text-gray-300">
+              <button
+                onClick={toggleMute}
+                className="text-gray-400 hover:text-white transition active:scale-90"
+                title={isMuted ? 'Activar sonido' : 'Silenciar'}
+              >
+                {isMuted || volume === 0 ? (
+                  <VolumeX className="w-5 h-5 text-red-400" />
+                ) : (
+                  <Volume2 className="w-5 h-5 text-emerald-400" />
+                )}
+              </button>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={isMuted ? 0 : volume}
+                onChange={handleVolumeChange}
+                className="w-full accent-[#1ED760] cursor-pointer h-1.5 bg-white/20 rounded-lg"
+                title="Ajustar volumen"
+              />
+              <span className="font-mono text-[11px] text-gray-400 tabular-nums w-8 text-right">
+                {Math.round((isMuted ? 0 : volume) * 100)}%
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          TOAST FEEDBACK
+          ========================================== */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-2xl border text-xs font-semibold ${
+            toast.type === 'success'
+              ? 'bg-[#181818] border-[#1ED760] text-white'
+              : 'bg-[#181818] border-red-500 text-red-200'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 text-[#1ED760] shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+          )}
+          <span>{toast.message}</span>
+        </div>
+      )}
+    </div>
+  );
+}
