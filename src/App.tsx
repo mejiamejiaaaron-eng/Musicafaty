@@ -202,9 +202,21 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  // Navegación por pestañas y vistas funcionales
-  const [activeTab, setActiveTab] = useState<'inicio' | 'buscar' | 'biblioteca'>('inicio');
-  const [activeFilter, setActiveFilter] = useState<'inicio' | 'canciones' | 'carpetas' | 'favoritas'>('inicio');
+  // Navegación por pestañas y vistas funcionales con persistencia en localStorage
+  const [activeTab, setActiveTab] = useState<'inicio' | 'buscar' | 'biblioteca'>(() => {
+    try {
+      const saved = localStorage.getItem('fa_active_tab_v2');
+      if (saved === 'inicio' || saved === 'buscar' || saved === 'biblioteca') return saved;
+    } catch {}
+    return 'inicio';
+  });
+  const [activeFilter, setActiveFilter] = useState<'inicio' | 'canciones' | 'carpetas' | 'favoritas'>(() => {
+    try {
+      const saved = localStorage.getItem('fa_active_filter_v2');
+      if (saved === 'inicio' || saved === 'canciones' || saved === 'carpetas' || saved === 'favoritas') return saved;
+    } catch {}
+    return 'inicio';
+  });
 
   // Estado de canciones y reproductor (solo música del usuario)
   const [songs, setSongs] = useState<Song[]>([]);
@@ -309,8 +321,81 @@ export default function App() {
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // Modales de Carpetas y Reproductor
-  const [selectedFolder, setSelectedFolder] = useState<AudioFolder | null>(null);
+  // Modales de Carpetas, Opciones y Reproductor
+  // 1. Estado de la vista actual con persistencia exacta 'ultimaVista'
+  const [vistaActual, setVistaActual] = useState<string>(() => {
+    try {
+      const guardada = localStorage.getItem('ultimaVista');
+      if (guardada) return guardada;
+    } catch {}
+    return 'inicio';
+  });
+
+  const [selectedFolder, setSelectedFolder] = useState<AudioFolder | null>(() => {
+    try {
+      const savedVista = localStorage.getItem('ultimaVista') || localStorage.getItem('fa_selected_folder_id_v2');
+      if (savedVista && savedVista !== 'inicio' && savedVista !== 'buscar' && savedVista !== 'biblioteca') {
+        const found = carpetasAudio.find((f) => f.id === savedVista);
+        if (found) return found;
+      }
+    } catch {}
+    return null;
+  });
+
+  // Estados para el Menú de Opciones en Canciones (⋮) y Mover a Carpeta
+  const [selectedSongForMenu, setSelectedSongForMenu] = useState<Song | null>(null);
+  const [showSongMenuModal, setShowSongMenuModal] = useState<boolean>(false);
+  const [showMoveModal, setShowMoveModal] = useState<boolean>(false);
+
+  // 2. useEffect que escucha cambios de vistaActual y guarda en localStorage('ultimaVista')
+  useEffect(() => {
+    try {
+      localStorage.setItem('ultimaVista', vistaActual);
+    } catch {}
+  }, [vistaActual]);
+
+  // Sincronizar vistaActual con la carpeta seleccionada y las pestañas
+  useEffect(() => {
+    try {
+      if (selectedFolder) {
+        setVistaActual(selectedFolder.id);
+        localStorage.setItem('ultimaVista', selectedFolder.id);
+        localStorage.setItem('fa_selected_folder_id_v2', selectedFolder.id);
+      } else {
+        setVistaActual(activeTab);
+        localStorage.setItem('ultimaVista', activeTab);
+        localStorage.removeItem('fa_selected_folder_id_v2');
+      }
+    } catch {}
+  }, [selectedFolder, activeTab]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('fa_active_tab_v2', activeTab);
+    } catch {}
+  }, [activeTab]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('fa_active_filter_v2', activeFilter);
+    } catch {}
+  }, [activeFilter]);
+
+  // Mantener selectedFolder sincronizado cuando se actualizan o cargan carpetas desde Supabase o localStorage
+  useEffect(() => {
+    try {
+      const savedVista = localStorage.getItem('ultimaVista') || localStorage.getItem('fa_selected_folder_id_v2');
+      if (savedVista && savedVista !== 'inicio' && savedVista !== 'buscar' && savedVista !== 'biblioteca') {
+        const f = folders.find((c) => c.id === savedVista) || carpetasAudio.find((c) => c.id === savedVista);
+        if (f) {
+          setSelectedFolder(f);
+          setVistaActual(f.id);
+        }
+      } else if (savedVista === 'buscar' || savedVista === 'biblioteca') {
+        setActiveTab(savedVista);
+      }
+    } catch {}
+  }, [folders]);
   const [folderLiked, setFolderLiked] = useState<Record<string, boolean>>({});
   const [showAddToFolderModal, setShowAddToFolderModal] = useState<boolean>(false);
   const [songToAddToFolder, setSongToAddToFolder] = useState<Song | null>(null);
@@ -346,13 +431,17 @@ CREATE TABLE IF NOT EXISTS public.songs (
   title TEXT NOT NULL,
   artist TEXT NOT NULL,
   cover_url TEXT,
-  audio_url TEXT NOT NULL
+  audio_url TEXT NOT NULL,
+  folder_id TEXT DEFAULT 'tus_me_gusta'
 );
+
+-- Asegurar columna folder_id si la tabla ya existía
+ALTER TABLE public.songs ADD COLUMN IF NOT EXISTS folder_id TEXT DEFAULT 'tus_me_gusta';
 
 -- Habilitar Seguridad a Nivel de Fila (RLS)
 ALTER TABLE public.songs ENABLE ROW LEVEL SECURITY;
 
--- Políticas de acceso para lectura, inserción y borrado
+-- Políticas de acceso para lectura, inserción, actualización y borrado
 DROP POLICY IF EXISTS "Permitir lectura publica de songs" ON public.songs;
 CREATE POLICY "Permitir lectura publica de songs"
 ON public.songs FOR SELECT
@@ -363,6 +452,13 @@ DROP POLICY IF EXISTS "Permitir insercion publica de songs" ON public.songs;
 CREATE POLICY "Permitir insercion publica de songs"
 ON public.songs FOR INSERT
 TO anon, authenticated
+WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Permitir actualizacion publica de songs" ON public.songs;
+CREATE POLICY "Permitir actualizacion publica de songs"
+ON public.songs FOR UPDATE
+TO anon, authenticated
+USING (true)
 WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Permitir eliminacion publica de songs" ON public.songs;
@@ -623,9 +719,11 @@ USING (bucket_id = 'musica');`;
       }
 
       if (dbSongs) {
-        // Normalizar los datos garantizando las propiedades title, artist, cover_url y audio_url
+        // Normalizar los datos garantizando las propiedades title, artist, cover_url, audio_url y folder_id
+        const metaLocales = obtenerMetadatosLocales();
         const cancionesBD: Song[] = dbSongs.map((row: any) => {
           const cachedLyrics = obtenerLetraPersistente(row.id, row.audio_url, row.title, row.artist);
+          const rawFolder = row.folder_id || row.folderId || metaLocales[row.audio_url]?.folderId || 'tus_me_gusta';
           return {
             id: row.id,
             title: row.title || 'Sin título',
@@ -638,6 +736,7 @@ USING (bucket_id = 'musica');`;
             url: row.audio_url || '',
             storage_path: row.audio_url || '',
             created_at: row.created_at,
+            folder_id: rawFolder,
             lyrics: cachedLyrics || undefined
           };
         });
@@ -650,43 +749,23 @@ USING (bucket_id = 'musica');`;
           setCurrentSong(cancionesBD[0]);
         }
 
-        // Sincronizar canciones en las carpetas (especialmente 'tus_me_gusta')
+        // Sincronizar canciones en las carpetas según su folder_id
         if (cancionesBD.length > 0) {
           setFolders((prevFolders) => {
-            let huboCambio = false;
             const updated = prevFolders.map((f) => {
-              const nuevasParaCarpeta: Song[] = [];
-              for (const c of cancionesBD) {
-                const pertenece = (f.id === 'tus_me_gusta');
-                const yaEsta = f.canciones.some((existente) =>
-                  String(existente.id) === String(c.id) ||
-                  (existente.url && c.url && existente.url === c.url) ||
-                  ((existente.title || existente.titulo).toLowerCase() === (c.title || c.titulo).toLowerCase() &&
-                   (existente.artist || existente.artista).toLowerCase() === (c.artist || c.artista).toLowerCase())
-                );
-
-                if (pertenece && !yaEsta) {
-                  nuevasParaCarpeta.push(c);
-                  huboCambio = true;
-                }
-              }
-
-              if (nuevasParaCarpeta.length > 0) {
-                return {
-                  ...f,
-                  canciones: [...nuevasParaCarpeta, ...f.canciones]
-                };
-              }
-              return f;
+              const cancionesParaEstaCarpeta = cancionesBD.filter(
+                (c) => (c.folder_id || 'tus_me_gusta') === f.id
+              );
+              return {
+                ...f,
+                canciones: cancionesParaEstaCarpeta
+              };
             });
 
-            if (huboCambio) {
-              try {
-                localStorage.setItem('fa_folders_v3', JSON.stringify(updated));
-              } catch (e) {}
-              return updated;
-            }
-            return prevFolders;
+            try {
+              localStorage.setItem('fa_folders_v3', JSON.stringify(updated));
+            } catch (e) {}
+            return updated;
           });
         }
       }
@@ -1203,8 +1282,82 @@ USING (bucket_id = 'musica');`;
   };
 
   // ==========================================
-  // GESTIÓN DE CARPETAS (AGREGAR, QUITAR Y ELIMINAR)
+  // GESTIÓN DE CARPETAS (MOVER, AGREGAR, QUITAR Y ELIMINAR)
   // ==========================================
+  const moverCancionACarpeta = async (song: Song, targetFolderId: string) => {
+    const target = folders.find((f) => f.id === targetFolderId);
+    if (!target) return;
+
+    const currentFid = song.folder_id || 'tus_me_gusta';
+    if (currentFid === targetFolderId) {
+      triggerToast(`"${song.title || song.titulo}" ya se encuentra en "${target.titulo}"`, 'error');
+      setShowMoveModal(false);
+      setShowSongMenuModal(false);
+      setSelectedSongForMenu(null);
+      return;
+    }
+
+    const updatedSong: Song = { ...song, folder_id: targetFolderId };
+
+    // 1. Actualización optimista inmediata en memoria de canciones
+    setSongs((prev) =>
+      prev.map((s) => (String(s.id) === String(song.id) ? { ...s, folder_id: targetFolderId } : s))
+    );
+    setCanciones((prev) =>
+      prev.map((s) => (String(s.id) === String(song.id) ? { ...s, folder_id: targetFolderId } : s))
+    );
+
+    // 2. Actualizar listas de carpetas (actualiza inmediatamente los contadores verdes y contenidos)
+    const updatedFolders = folders.map((f) => {
+      let list = (f.canciones || []).filter((c) => String(c.id) !== String(song.id));
+      if (f.id === targetFolderId) {
+        list = [updatedSong, ...list];
+      }
+      return { ...f, canciones: list };
+    });
+    saveFolders(updatedFolders);
+
+    if (selectedFolder) {
+      const refreshed = updatedFolders.find((f) => f.id === selectedFolder.id);
+      if (refreshed) setSelectedFolder(refreshed);
+    }
+
+    // 3. Guardar metadatos locales para persistencia offline
+    const ruta = song.audio_url || song.url;
+    if (ruta) {
+      guardarMetadatoCancion(ruta, {
+        titulo: song.title || song.titulo,
+        artista: song.artist || song.artista,
+        cover: song.cover_url || song.cover,
+        folderId: targetFolderId,
+        url: ruta,
+        created_at: song.created_at || new Date().toISOString(),
+        lyrics: song.lyrics
+      });
+    }
+
+    triggerToast(`¡"${song.title || song.titulo}" movida a "${target.titulo}"!`, 'success');
+    setShowMoveModal(false);
+    setShowSongMenuModal(false);
+    setSelectedSongForMenu(null);
+
+    // 4. Actualizar registro en Supabase usando UPDATE
+    try {
+      if (!String(song.id).startsWith('local_') && !String(song.id).startsWith('r2_')) {
+        const { error: updateError } = await supabase
+          .from('songs')
+          .update({ folder_id: targetFolderId })
+          .eq('id', song.id);
+
+        if (updateError) {
+          console.warn('Aviso al actualizar folder_id en Supabase:', updateError.message);
+        }
+      }
+    } catch (dbErr) {
+      console.warn('Excepción al hacer UPDATE en Supabase:', dbErr);
+    }
+  };
+
   const agregarCancionACarpeta = (folderId: string, song: Song) => {
     const target = folders.find((f) => f.id === folderId);
     if (!target) return;
@@ -1445,21 +1598,39 @@ USING (bucket_id = 'musica');`;
               title: songTitle,
               artist: songArtist,
               cover_url: finalCover,
-              audio_url: publicUrl
+              audio_url: publicUrl,
+              folder_id: 'tus_me_gusta'
             }
           ])
           .select()
           .single();
 
         if (insertError) {
-          console.warn('Nota en INSERT de tabla songs:', insertError.message || insertError);
-          triggerToast(`Aviso al guardar en Supabase: ${insertError.message}`, 'error');
+          console.warn('Nota en INSERT de tabla songs con folder_id:', insertError.message);
+          // Reintento sin folder_id en caso de que la columna aún no exista en Supabase
+          const { data: retryInsert, error: retryError } = await supabase
+            .from('songs')
+            .insert([
+              {
+                title: songTitle,
+                artist: songArtist,
+                cover_url: finalCover,
+                audio_url: publicUrl
+              }
+            ])
+            .select()
+            .single();
+          if (retryError) {
+            console.warn('Error en reintento de guardado en Supabase:', retryError.message);
+          } else {
+            dbRecord = retryInsert;
+          }
         } else {
           dbRecord = songInserted;
         }
       } catch (insertErr: any) {
         console.warn('Excepción al insertar en tabla songs:', insertErr);
-        triggerToast(`Error al guardar en Supabase: ${insertErr?.message || insertErr}`, 'error');
+        triggerToast(`Aviso al guardar en Supabase: ${insertErr?.message || insertErr}`, 'error');
       }
 
       const nuevaCancion: Song = {
@@ -1474,25 +1645,24 @@ USING (bucket_id = 'musica');`;
         url: publicUrl,
         storage_path: publicUrl,
         created_at: dbRecord?.created_at || new Date().toISOString(),
+        folder_id: 'tus_me_gusta',
         lyrics: fileLyrics || undefined
       };
 
-      // 3. Guardar metadatos locales y persistentes
+      // 3. Guardar metadatos locales y persistentes (en tus_me_gusta)
       guardarMetadatoCancion(publicUrl, {
         titulo: songTitle,
         artista: songArtist,
         cover: finalCover,
-        folderId: targetFolderId,
+        folderId: 'tus_me_gusta',
         url: publicUrl,
         created_at: nuevaCancion.created_at || new Date().toISOString(),
         lyrics: fileLyrics || undefined
       });
       guardarLetraPersistente(nuevaCancion.id, publicUrl, songTitle, songArtist, fileLyrics);
 
-      // 4. Agregar a la carpeta seleccionada (ej. buchonass, perreale, tus_me_gusta)
-      if (targetFolderId) {
-        agregarCancionACarpeta(targetFolderId, nuevaCancion);
-      }
+      // 4. Agregar a la lista general / Tus me gusta (el usuario puede moverla luego con ⋮)
+      agregarCancionACarpeta('tus_me_gusta', nuevaCancion);
 
       // 5. Actualizar los estados de la interfaz
       setSongs((prev) => [nuevaCancion, ...prev.filter((s) => String(s.id) !== String(nuevaCancion.id))]);
@@ -1544,7 +1714,7 @@ USING (bucket_id = 'musica');`;
 
     setIsUploading(true);
     const nuevasCanciones: Song[] = [];
-    const targetFolder = folderDestinoId || targetFolderId || 'tus_me_gusta';
+    const targetFolder = 'tus_me_gusta';
 
     for (let i = 0; i < lista.length; i++) {
       const file = lista[i];
@@ -1572,23 +1742,40 @@ USING (bucket_id = 'musica');`;
 
         const ruta = finalAudioUrl;
 
-        // Insertar en tabla 'songs'
+        // Insertar en tabla 'songs' con folder_id
         let dbId: string | undefined;
         try {
-          const { data: songInserted } = await supabase
+          const { data: songInserted, error: insertError } = await supabase
             .from('songs')
             .insert([
               {
                 title: songTitle,
                 artist: songArtist,
                 cover_url: cover,
-                audio_url: finalAudioUrl
+                audio_url: finalAudioUrl,
+                folder_id: 'tus_me_gusta'
               }
             ])
             .select()
             .single();
 
-          if (songInserted?.id) dbId = songInserted.id;
+          if (insertError) {
+            const { data: retryInsert } = await supabase
+              .from('songs')
+              .insert([
+                {
+                  title: songTitle,
+                  artist: songArtist,
+                  cover_url: cover,
+                  audio_url: finalAudioUrl
+                }
+              ])
+              .select()
+              .single();
+            if (retryInsert?.id) dbId = retryInsert.id;
+          } else if (songInserted?.id) {
+            dbId = songInserted.id;
+          }
         } catch (e) {
           console.warn('Nota BD:', e);
         }
@@ -1605,6 +1792,7 @@ USING (bucket_id = 'musica');`;
           url: finalAudioUrl,
           storage_path: ruta,
           created_at: new Date().toISOString(),
+          folder_id: 'tus_me_gusta',
           lyrics: id3.lyrics || undefined
         };
 
@@ -1612,7 +1800,7 @@ USING (bucket_id = 'musica');`;
           titulo: songTitle,
           artista: songArtist,
           cover,
-          folderId: targetFolder,
+          folderId: 'tus_me_gusta',
           url: finalAudioUrl,
           created_at: cancion.created_at || new Date().toISOString(),
           lyrics: id3.lyrics || undefined
@@ -2084,15 +2272,27 @@ USING (bucket_id = 'musica');`;
 
   const obtenerCancionesCarpeta = (folder: AudioFolder): Song[] => {
     const currentFolderData = folders.find((f) => f.id === folder.id) || folder;
-    if (folder.id === 'tus_me_gusta') {
-      const cancionesSubidas = canciones.filter(
-        (c) => !initialDemoSongs.some((demo) => demo.id === c.id)
-      );
-      const ids = new Set(currentFolderData.canciones.map((c) => String(c.id)));
-      const extras = cancionesSubidas.filter((c) => !ids.has(String(c.id)));
-      return [...extras, ...currentFolderData.canciones];
+    const allSongs = songs.length > 0 ? songs : canciones;
+
+    // Canciones cuyo folder_id coincide con esta carpeta (o por defecto tus_me_gusta)
+    const matchingSongs = allSongs.filter((c) => {
+      const fid = c.folder_id || 'tus_me_gusta';
+      return fid === folder.id;
+    });
+
+    const map = new Map<string, Song>();
+    for (const c of matchingSongs) {
+      map.set(String(c.id), c);
     }
-    return currentFolderData.canciones;
+    // Compatibilidad con canciones presentes en la memoria de la carpeta
+    for (const c of currentFolderData.canciones || []) {
+      const fid = c.folder_id || 'tus_me_gusta';
+      if (fid === folder.id && !map.has(String(c.id))) {
+        map.set(String(c.id), c);
+      }
+    }
+
+    return Array.from(map.values());
   };
 
   const toggleLikeFolder = (folderId: string) => {
@@ -2300,8 +2500,21 @@ USING (bucket_id = 'musica');`;
                     </p>
                   </div>
 
-                  {/* Botones de acción: Quitar de carpeta y Eliminar */}
+                  {/* Botones de acción: Menú de opciones (⋮), Quitar de carpeta y Eliminar */}
                   <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                    {/* Botón: Menú de opciones (Mover a carpeta) */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedSongForMenu(cancion);
+                        setShowSongMenuModal(true);
+                      }}
+                      className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition active:scale-90"
+                      title="Opciones (Mover a carpeta)"
+                    >
+                      <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </button>
+
                     {/* Botón: Quitar de esta carpeta */}
                     <button
                       onClick={(e) => quitarCancionDeCarpeta(currentFolderState.id, cancion.id, e)}
@@ -2818,13 +3031,13 @@ USING (bucket_id = 'musica');`;
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setSongToAddToFolder(cancion);
-                                setShowAddToFolderModal(true);
+                                setSelectedSongForMenu(cancion);
+                                setShowSongMenuModal(true);
                               }}
                               className="p-2 text-gray-400 hover:text-white rounded-lg transition active:scale-90"
-                              title="Agregar a carpeta"
+                              title="Opciones de la canción (Mover a carpeta)"
                             >
-                              <FolderPlus className="w-4 h-4" />
+                              <MoreVertical className="w-4 h-4" />
                             </button>
 
                             <button
@@ -3024,6 +3237,18 @@ USING (bucket_id = 'musica');`;
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
+                                      setSelectedSongForMenu(cancion);
+                                      setShowSongMenuModal(true);
+                                    }}
+                                    className="p-2 text-gray-400 hover:text-white rounded-lg transition active:scale-90"
+                                    title="Opciones de la canción (Mover a carpeta)"
+                                  >
+                                    <MoreVertical className="w-4 h-4" />
+                                  </button>
+
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
                                       seleccionarCancion(cancion);
                                     }}
                                     className="w-8 h-8 rounded-full bg-white/10 hover:bg-white text-white hover:text-black flex items-center justify-center transition active:scale-95 ml-1"
@@ -3083,7 +3308,20 @@ USING (bucket_id = 'musica');`;
                       <p className="text-xs text-gray-400 truncate">{cancion.artist || cancion.artista}</p>
                     </div>
                   </div>
-                  <Play className="w-4 h-4 text-gray-400 group-hover:text-white" />
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedSongForMenu(cancion);
+                        setShowSongMenuModal(true);
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-white rounded-lg transition active:scale-90"
+                      title="Opciones (Mover a carpeta)"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </button>
+                    <Play className="w-4 h-4 text-gray-400 group-hover:text-white" />
+                  </div>
                 </div>
               ))}
             </div>
@@ -3189,7 +3427,18 @@ USING (bucket_id = 'musica');`;
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 sm:gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedSongForMenu(song);
+                            setShowSongMenuModal(true);
+                          }}
+                          className="p-1.5 text-gray-400 hover:text-white rounded-lg transition active:scale-90"
+                          title="Opciones (Mover a carpeta)"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={(e) => solicitarEliminarCancion(song, e)}
                           className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
@@ -3775,25 +4024,19 @@ USING (bucket_id = 'musica');`;
                 </div>
               </div>
 
-              {/* Selector de Carpeta Destino */}
-              <div>
-                <label className="block text-xs font-bold text-gray-200 mb-1">
-                  Guardar en Carpeta:
-                </label>
-                <select
-                  value={targetFolderId}
-                  onChange={(e) => setTargetFolderId(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-[#141414] border border-[#333333] rounded-xl text-sm text-white focus:outline-none focus:border-emerald-500 font-medium cursor-pointer"
-                >
-                  {folders.map((f) => (
-                    <option key={f.id} value={f.id} className="bg-[#1A1A1A] text-white">
-                      📁 {f.titulo} ({f.badge || 'Carpeta'})
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[11px] text-gray-400 mt-1">
-                  La canción se agregará a esta carpeta y a tu catálogo automáticamente.
-                </p>
+              {/* Destino automático: Tus me gusta / Lista general */}
+              <div className="p-3 bg-[#161618] border border-white/10 rounded-xl flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#4c1d95] to-[#3b82f6] flex items-center justify-center shrink-0">
+                  <Heart className="w-5 h-5 text-white fill-current" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-white">
+                    Destino: <span className="text-emerald-400">Tus me gusta (Lista General)</span>
+                  </p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    Se subirá directamente a tu música. Luego podrás asignarla o moverla a cualquier carpeta con el menú de 3 puntos (<strong className="text-emerald-400">⋮</strong>).
+                  </p>
+                </div>
               </div>
 
               {isUploading && (
@@ -4218,6 +4461,237 @@ USING (bucket_id = 'musica');`;
                 className="py-2.5 px-6 text-xs font-bold bg-[#1ED760] hover:bg-[#1db954] text-black rounded-xl shadow-lg transition active:scale-95"
               >
                 ¡Entendido!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: MENÚ DE OPCIONES DE CANCIÓN (⋮)
+          ========================================== */}
+      {showSongMenuModal && selectedSongForMenu && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+          <div className="bg-[#1C1C1E] border border-[#3A3A3C] rounded-t-3xl sm:rounded-3xl w-full max-w-md p-5 shadow-2xl relative">
+            <button
+              onClick={() => {
+                setShowSongMenuModal(false);
+                setSelectedSongForMenu(null);
+              }}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1.5 rounded-xl bg-[#2C2C2E] transition active:scale-90"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Cabecera con datos de la canción */}
+            <div className="flex items-center gap-3.5 mb-5 pr-8">
+              <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0 shadow-lg bg-neutral-900 border border-white/10">
+                {renderCover(selectedSongForMenu.cover_url || selectedSongForMenu.cover, 'w-full h-full object-cover')}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm sm:text-base font-black text-white truncate">
+                  {selectedSongForMenu.title || selectedSongForMenu.titulo}
+                </p>
+                <p className="text-xs text-gray-400 truncate mt-0.5">
+                  {selectedSongForMenu.artist || selectedSongForMenu.artista}
+                </p>
+                <div className="mt-1">
+                  {(() => {
+                    const fid = selectedSongForMenu.folder_id || 'tus_me_gusta';
+                    const curFolder = folders.find((f) => f.id === fid) || carpetasAudio.find((f) => f.id === fid);
+                    return (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                        <Folder className="w-3 h-3" />
+                        <span>En: {curFolder?.titulo || 'Tus me gusta'}</span>
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Opciones de la Canción */}
+            <div className="space-y-1.5">
+              {/* Opción 1: Mover a carpeta */}
+              <button
+                onClick={() => {
+                  setShowSongMenuModal(false);
+                  setShowMoveModal(true);
+                }}
+                className="w-full flex items-center gap-3.5 p-3 rounded-2xl bg-[#252528] hover:bg-[#303035] text-left transition active:scale-[0.99] border border-white/5"
+              >
+                <div className="w-10 h-10 rounded-xl bg-[#1ED760]/20 text-[#1ED760] flex items-center justify-center shrink-0">
+                  <FolderCheck className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-white">Mover a carpeta</p>
+                  <p className="text-xs text-gray-400">Asignar a Perreale, los 2000&apos;, buchonass, etc.</p>
+                </div>
+              </button>
+
+              {/* Opción 2: Favoritos */}
+              <button
+                onClick={() => {
+                  toggleFavorite(selectedSongForMenu);
+                  setShowSongMenuModal(false);
+                  setSelectedSongForMenu(null);
+                }}
+                className="w-full flex items-center gap-3.5 p-3 rounded-2xl bg-[#252528] hover:bg-[#303035] text-left transition active:scale-[0.99] border border-white/5"
+              >
+                <div className="w-10 h-10 rounded-xl bg-pink-600/20 text-pink-400 flex items-center justify-center shrink-0">
+                  <Heart className={`w-5 h-5 ${favorites.includes(String(selectedSongForMenu.id)) ? 'fill-current text-[#1ED760]' : ''}`} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-white">
+                    {favorites.includes(String(selectedSongForMenu.id)) ? 'Quitar de Favoritos' : 'Añadir a Favoritos'}
+                  </p>
+                  <p className="text-xs text-gray-400">Guardar en tu lista de temas con corazón</p>
+                </div>
+              </button>
+
+              {/* Opción 3: Reproducir ahora */}
+              <button
+                onClick={() => {
+                  seleccionarCancion(selectedSongForMenu);
+                  setShowSongMenuModal(false);
+                  setSelectedSongForMenu(null);
+                }}
+                className="w-full flex items-center gap-3.5 p-3 rounded-2xl bg-[#252528] hover:bg-[#303035] text-left transition active:scale-[0.99] border border-white/5"
+              >
+                <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center shrink-0">
+                  <Play className="w-5 h-5 fill-current ml-0.5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-white">Reproducir ahora</p>
+                  <p className="text-xs text-gray-400">Escuchar audio al instante</p>
+                </div>
+              </button>
+
+              {/* Opción 4: Eliminar canción */}
+              <button
+                onClick={() => {
+                  const s = selectedSongForMenu;
+                  setShowSongMenuModal(false);
+                  setSelectedSongForMenu(null);
+                  solicitarEliminarCancion(s);
+                }}
+                className="w-full flex items-center gap-3.5 p-3 rounded-2xl bg-red-950/30 hover:bg-red-950/60 text-left transition active:scale-[0.99] border border-red-500/30"
+              >
+                <div className="w-10 h-10 rounded-xl bg-red-600/20 text-red-400 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-red-300">Eliminar canción</p>
+                  <p className="text-xs text-red-200/70">Quitar de carpetas y base de datos</p>
+                </div>
+              </button>
+            </div>
+
+            <button
+              onClick={() => {
+                setShowSongMenuModal(false);
+                setSelectedSongForMenu(null);
+              }}
+              className="w-full mt-4 py-2.5 text-xs sm:text-sm font-bold bg-[#282828] hover:bg-[#333333] text-gray-300 rounded-xl transition"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: MOVER A CARPETA (LISTA DE TODAS LAS CARPETAS)
+          ========================================== */}
+      {showMoveModal && selectedSongForMenu && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-[#1C1C1E] border border-[#3A3A3C] rounded-3xl w-full max-w-lg p-6 shadow-2xl relative max-h-[88vh] flex flex-col">
+            <button
+              onClick={() => {
+                setShowMoveModal(false);
+                setSelectedSongForMenu(null);
+              }}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1.5 rounded-xl bg-[#2C2C2E] transition active:scale-90"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3.5 mb-4 shrink-0 pr-8">
+              <div className="w-12 h-12 rounded-2xl bg-[#1ED760]/20 text-[#1ED760] flex items-center justify-center shrink-0">
+                <FolderCheck className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base sm:text-lg font-black text-white truncate">
+                  Mover a carpeta
+                </h3>
+                <p className="text-xs text-gray-300 truncate mt-0.5">
+                  Canción: <strong className="text-[#1ED760]">&quot;{selectedSongForMenu.title || selectedSongForMenu.titulo}&quot;</strong>
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-400 mb-3 shrink-0">
+              Selecciona la carpeta donde deseas guardar esta canción. Se actualizará en Supabase y los contadores verdes reflejarán el cambio de inmediato:
+            </p>
+
+            {/* Lista de Carpetas Disponibles con Contadores Verdes */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+              {folders.map((folder) => {
+                const count = obtenerCancionesCarpeta(folder).length;
+                const esCarpetaActual = (selectedSongForMenu.folder_id || 'tus_me_gusta') === folder.id;
+
+                return (
+                  <div
+                    key={folder.id}
+                    onClick={() => moverCancionACarpeta(selectedSongForMenu, folder.id)}
+                    className={`flex items-center justify-between p-3 rounded-2xl cursor-pointer transition border ${
+                      esCarpetaActual
+                        ? 'bg-[#1ED760]/10 border-[#1ED760]/50'
+                        : 'bg-[#242426] hover:bg-[#2c2c30] border-white/5 hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 shadow bg-neutral-900">
+                        {renderCover(folder.coverKey, 'w-full h-full object-cover')}
+                      </div>
+                      <div className="min-w-0 pr-2">
+                        <p className={`text-sm font-bold truncate ${esCarpetaActual ? 'text-[#1ED760]' : 'text-white'}`}>
+                          {folder.titulo}
+                        </p>
+                        <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                          {folder.subtitulo || folder.descripcion}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+                        {count} {count === 1 ? 'audio' : 'audios'}
+                      </span>
+                      {esCarpetaActual ? (
+                        <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-[10px] font-bold text-gray-300">
+                          Actual
+                        </span>
+                      ) : (
+                        <span className="w-8 h-8 rounded-full bg-[#1ED760] text-black flex items-center justify-center shadow transition hover:scale-105">
+                          <Check className="w-4 h-4 stroke-[3]" />
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-white/10 shrink-0 flex justify-end">
+              <button
+                onClick={() => {
+                  setShowMoveModal(false);
+                  setSelectedSongForMenu(null);
+                }}
+                className="w-full py-2.5 text-xs sm:text-sm font-bold bg-[#282828] hover:bg-[#333333] text-gray-200 rounded-xl transition"
+              >
+                Cerrar
               </button>
             </div>
           </div>
