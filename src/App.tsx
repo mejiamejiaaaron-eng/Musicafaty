@@ -54,7 +54,10 @@ import {
   RefreshCw,
   MinusCircle,
   FolderCheck,
-  Mic
+  Mic,
+  UserX,
+  Sliders,
+  Shield
 } from 'lucide-react';
 
 // ==========================================
@@ -193,14 +196,41 @@ export const carpetasAudio: AudioFolder[] = [
 export const initialDemoSongs: Song[] = [];
 
 export default function App() {
-  // Estado de autenticación
+  // Estado de autenticación y control de sesión
   const [user, setUser] = useState<User | null>(null);
+  const [sessionLoading, setSessionLoading] = useState<boolean>(true);
   const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
   const [isSignUpMode, setIsSignUpMode] = useState<boolean>(false);
-  const [email, setEmail] = useState<string>('mejiamejiaaaron@gmail.com');
-  const [password, setPassword] = useState<string>('Admin2026*');
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // Nombre de la aplicación (configurable por el Admin y persistente en localStorage)
+  const [appName, setAppName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('appName') || localStorage.getItem('fa_app_title_v1') || 'FINANCIERA AARON';
+    } catch {
+      return 'FINANCIERA AARON';
+    }
+  });
+  const [tempAppName, setTempAppName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('appName') || localStorage.getItem('fa_app_title_v1') || 'FINANCIERA AARON';
+    } catch {
+      return 'FINANCIERA AARON';
+    }
+  });
+
+  // Panel de Ajustes Administrativos y Gestión de Usuarios Bloqueados (Kick)
+  const [showAdminSettingsModal, setShowAdminSettingsModal] = useState<boolean>(false);
+  const [blockedUsers, setBlockedUsers] = useState<{ email: string; created_at: string }[]>([]);
+  const [newBlockEmail, setNewBlockEmail] = useState<string>('');
+  const [loadingBlockedUsers, setLoadingBlockedUsers] = useState<boolean>(false);
+  const [sqlCopiedBlocked, setSqlCopiedBlocked] = useState<boolean>(false);
+
+  // Lógica de Admin estricta: solo si el correo es mejiamejiaaaron@gmail.com
+  const isAdmin = Boolean(user?.email && user.email.trim().toLowerCase() === 'mejiamejiaaaron@gmail.com');
 
   // Navegación por pestañas y vistas funcionales con persistencia en localStorage
   const [activeTab, setActiveTab] = useState<'inicio' | 'buscar' | 'biblioteca'>(() => {
@@ -255,6 +285,8 @@ export default function App() {
   // Refs para subida múltiple y carpetas completas
   const multiFileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const folderDirectFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isDirectFolderUploading, setIsDirectFolderUploading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<{ total: number; current: number; currentName: string } | null>(null);
 
   // Estado de carpetas dinámicas y personalizadas (filtrando canciones de prueba)
@@ -291,12 +323,41 @@ export default function App() {
     return carpetasAudio;
   });
 
+  // Paginación de alto rendimiento para listas grandes (mostrar de 50 en 50 para evitar bloqueos)
+  const [cancionesPageSize, setCancionesPageSize] = useState<number>(50);
+  const [folderPageSize, setFolderPageSize] = useState<number>(50);
+  const [addMusicModalPageSize, setAddMusicModalPageSize] = useState<number>(50);
+
   const saveFolders = (newFolders: AudioFolder[]) => {
     setFolders(newFolders);
     try {
-      localStorage.setItem('fa_folders_v3', JSON.stringify(newFolders));
+      // Guardar representación ligera sin duplicar imágenes base64 ni metadatos pesados para no exceder los 5MB de localStorage
+      const lightweight = newFolders.map((f) => ({
+        id: f.id,
+        titulo: f.titulo,
+        subtitulo: f.subtitulo,
+        descripcion: f.descripcion,
+        coverKey: f.coverKey,
+        badge: f.badge,
+        canciones: (f.canciones || []).map((c) => ({
+          id: c.id,
+          title: c.title || c.titulo,
+          artist: c.artist || c.artista,
+          titulo: c.title || c.titulo,
+          artista: c.artist || c.artista,
+          cover_url: c.cover_url?.startsWith('data:') ? undefined : c.cover_url,
+          audio_url: c.audio_url || c.url,
+          url: c.audio_url || c.url,
+          storage_path: c.storage_path || c.audio_url || c.url,
+          folder_id: c.folder_id || f.id
+        }))
+      }));
+      localStorage.setItem('fa_folders_v3', JSON.stringify(lightweight));
     } catch (e) {
-      console.warn('Error guardando carpetas:', e);
+      console.warn('Nota de cuota al guardar carpetas en localStorage (se mantiene en memoria de React):', e);
+      try {
+        localStorage.removeItem('fa_folders_v2');
+      } catch {}
     }
   };
 
@@ -509,16 +570,189 @@ USING (bucket_id = 'musica');`;
     setTimeout(() => setCopiedDeployText(''), 2500);
   };
 
+  const blockedUsersSql = `CREATE TABLE IF NOT EXISTS blocked_users (
+  id uuid primary key default gen_random_uuid(),
+  email text unique not null,
+  created_at timestamptz default now()
+);
+
+ALTER TABLE blocked_users ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Permitir gestion de usuarios bloqueados"
+ON blocked_users FOR ALL
+TO anon, authenticated
+USING (true)
+WITH CHECK (true);`;
+
+  const copyBlockedSql = () => {
+    navigator.clipboard.writeText(blockedUsersSql);
+    setSqlCopiedBlocked(true);
+    triggerToast('¡SQL para blocked_users copiado!', 'success');
+    setTimeout(() => setSqlCopiedBlocked(false), 3000);
+  };
+
+  // Sincronizar título en la pestaña del navegador
+  useEffect(() => {
+    document.title = appName;
+  }, [appName]);
+
+  // Consultar si un usuario está en la tabla blocked_users
+  const checkIsUserBlocked = async (userEmail?: string | null): Promise<boolean> => {
+    if (!userEmail) return false;
+    try {
+      const clean = userEmail.trim().toLowerCase();
+      const { data, error } = await supabase
+        .from('blocked_users')
+        .select('email')
+        .eq('email', clean)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Nota verificando blocked_users:', error.message);
+        return false;
+      }
+      return !!data;
+    } catch (e) {
+      console.warn('Excepción al consultar blocked_users:', e);
+      return false;
+    }
+  };
+
+  // Cargar lista de usuarios bloqueados para el panel de administración
+  const cargarUsuariosBloqueados = async () => {
+    setLoadingBlockedUsers(true);
+    try {
+      const { data, error } = await supabase
+        .from('blocked_users')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Nota cargando blocked_users:', error.message);
+      } else if (data) {
+        setBlockedUsers(data);
+      }
+    } catch (err) {
+      console.warn('Excepción al cargar usuarios bloqueados:', err);
+    } finally {
+      setLoadingBlockedUsers(false);
+    }
+  };
+
+  // Bloquear usuario (Kick) y guardar en la tabla blocked_users
+  const bloquearUsuario = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = newBlockEmail.trim().toLowerCase();
+    if (!clean) {
+      alert('Por favor escribe un correo electrónico para bloquear.');
+      return;
+    }
+    if (clean === 'mejiamejiaaaron@gmail.com') {
+      alert('Acción no permitida: No puedes bloquear la cuenta del administrador principal.');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from('blocked_users').insert([
+        { email: clean, created_at: new Date().toISOString() }
+      ]);
+
+      if (error) {
+        if (error.code === '23505' || error.message.includes('duplicate')) {
+          alert(`El usuario ${clean} ya se encuentra bloqueado.`);
+        } else {
+          alert(`Error al guardar en la tabla blocked_users:\n\n${error.message}\n\nAsegúrate de que la tabla "blocked_users" exista en Supabase con columnas (email text, created_at timestamp).`);
+        }
+        return;
+      }
+
+      setNewBlockEmail('');
+      triggerToast(`Usuario ${clean} bloqueado con éxito`, 'success');
+      cargarUsuariosBloqueados();
+    } catch (err: any) {
+      alert(`Error al bloquear usuario:\n\n${err?.message || err}`);
+    }
+  };
+
+  // Desbloquear usuario de la tabla blocked_users
+  const desbloquearUsuario = async (correo: string) => {
+    try {
+      const { error } = await supabase
+        .from('blocked_users')
+        .delete()
+        .eq('email', correo);
+
+      if (error) {
+        alert(`Error al desbloquear usuario: ${error.message}`);
+        return;
+      }
+
+      triggerToast(`Usuario ${correo} desbloqueado`, 'success');
+      cargarUsuariosBloqueados();
+    } catch (err: any) {
+      alert(`Error al desbloquear: ${err?.message || err}`);
+    }
+  };
+
+  // Guardar nuevo nombre de la aplicación
+  const guardarNombreApp = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = tempAppName.trim();
+    if (!clean) {
+      alert('Por favor ingresa un nombre para la aplicación.');
+      return;
+    }
+    setAppName(clean);
+    try {
+      localStorage.setItem('appName', clean);
+      localStorage.setItem('fa_app_title_v1', clean);
+      document.title = clean;
+    } catch {}
+    setShowAdminSettingsModal(false);
+    triggerToast(`¡Nombre de la app actualizado a "${clean}"!`, 'success');
+  };
+
   // ==========================================
   // INICIALIZACIÓN: SESIÓN & CARGAR CANCIONES
   // ==========================================
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user?.email) {
+        const isBlocked = await checkIsUserBlocked(session.user.email);
+        if (isBlocked) {
+          await supabase.auth.signOut();
+          setUser(null);
+          alert('Acceso denegado por el administrador');
+        } else {
+          setUser(session.user);
+          if (session.user.email.toLowerCase() === 'mejiamejiaaaron@gmail.com') {
+            cargarUsuariosBloqueados();
+          }
+        }
+      } else {
+        setUser(null);
+      }
+      setSessionLoading(false);
     });
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user?.email) {
+        const isBlocked = await checkIsUserBlocked(session.user.email);
+        if (isBlocked) {
+          await supabase.auth.signOut();
+          setUser(null);
+          alert('Acceso denegado por el administrador');
+          setSessionLoading(false);
+          return;
+        }
+        setUser(session.user);
+        if (session.user.email.toLowerCase() === 'mejiamejiaaaron@gmail.com') {
+          cargarUsuariosBloqueados();
+        }
+      } else {
+        setUser(null);
+      }
+      setSessionLoading(false);
     });
 
     cargarCanciones();
@@ -565,7 +799,7 @@ USING (bucket_id = 'musica');`;
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
       if (outcome === 'accepted') {
-        triggerToast('¡FINANCIERA AARON se ha instalado en tu pantalla de inicio!', 'success');
+        triggerToast(`¡${appName} se ha instalado en tu pantalla de inicio!`, 'success');
         setDeferredPrompt(null);
       }
     } else {
@@ -702,9 +936,10 @@ USING (bucket_id = 'musica');`;
       const { data: dbSongs, error: dbError } = await supabase
         .from('songs')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(5000);
 
-      console.log('dbSongs:', dbSongs);
+      console.log('dbSongs (recibidas de Supabase):', dbSongs ? dbSongs.length : 0);
 
       if (dbError) {
         console.warn('Aviso al cargar canciones desde Supabase:', dbError.message || dbError);
@@ -782,13 +1017,26 @@ USING (bucket_id = 'musica');`;
     setIsLoggingIn(true);
     setAuthError(null);
 
-    const cleanEmail = email.trim();
+    const cleanEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
 
     if (!cleanEmail || !cleanPassword) {
       setAuthError('Por favor ingresa un correo y contraseña válidos.');
       setIsLoggingIn(false);
       return;
+    }
+
+    // 1. Bloqueo de Usuarios: Al intentar hacer Login, consultar si el correo está en la tabla blocked_users
+    try {
+      const isBlocked = await checkIsUserBlocked(cleanEmail);
+      if (isBlocked) {
+        setIsLoggingIn(false);
+        await supabase.auth.signOut();
+        alert('Acceso denegado por el administrador');
+        return;
+      }
+    } catch (bErr) {
+      console.warn('Nota verificando bloqueo previo:', bErr);
     }
 
     try {
@@ -803,6 +1051,13 @@ USING (bucket_id = 'musica');`;
           return;
         }
         if (data?.user) {
+          const isBlockedAfter = await checkIsUserBlocked(data.user.email || cleanEmail);
+          if (isBlockedAfter) {
+            await supabase.auth.signOut();
+            setUser(null);
+            alert('Acceso denegado por el administrador');
+            return;
+          }
           setUser(data.user);
           setShowLoginModal(false);
           triggerToast(`¡Usuario conectado: ${data.user.email}!`, 'success');
@@ -820,6 +1075,13 @@ USING (bucket_id = 'musica');`;
         }
 
         if (data?.user) {
+          const isBlockedAfter = await checkIsUserBlocked(data.user.email || cleanEmail);
+          if (isBlockedAfter) {
+            await supabase.auth.signOut();
+            setUser(null);
+            alert('Acceso denegado por el administrador');
+            return;
+          }
           setUser(data.user);
           setShowLoginModal(false);
           triggerToast(`¡Bienvenido, ${data.user.email}!`, 'success');
@@ -1297,30 +1559,113 @@ USING (bucket_id = 'musica');`;
       return;
     }
 
+    // 1. Identificar índice de la canción para depuración detallada
+    const indiceActual = (songs.length > 0 ? songs : canciones).findIndex(
+      (s) => String(s.id) === String(song.id) || (s.audio_url && song.audio_url && s.audio_url === song.audio_url)
+    );
+    const numeroCancion = indiceActual >= 0 ? indiceActual + 1 : 1;
+    console.log(`[Mover] Moviendo canción #${numeroCancion} ("${song.title || song.titulo}", ID: ${song.id}) a carpeta "${targetFolderId}"...`);
+
+    // 2. Ejecutar UPDATE en Supabase usando la columna exacta folder_id
+    let updateError: any = null;
+    try {
+      // Intentar actualizar por 'id' en la tabla 'songs'
+      const { data: updateData, error: errById } = await supabase
+        .from('songs')
+        .update({ folder_id: targetFolderId })
+        .eq('id', song.id)
+        .select();
+
+      if (errById) {
+        // Si falló por id (por ejemplo si id no es UUID o no coincide) y hay audio_url, intentar por audio_url
+        const rutaAudio = song.audio_url || song.url;
+        if (rutaAudio) {
+          const { error: errByUrl } = await supabase
+            .from('songs')
+            .update({ folder_id: targetFolderId })
+            .eq('audio_url', rutaAudio);
+
+          if (errByUrl) {
+            updateError = errByUrl;
+            console.error(`[Error Supabase] Falló la petición al mover la canción #${numeroCancion} ("${song.title || song.titulo}", ID: ${song.id}) a "${targetFolderId}":`, errByUrl);
+          }
+        } else {
+          updateError = errById;
+          console.error(`[Error Supabase] Falló la petición al mover la canción #${numeroCancion} ("${song.title || song.titulo}", ID: ${song.id}) a "${targetFolderId}":`, errById);
+        }
+      } else if (!updateData || updateData.length === 0) {
+        // Si no arrojó error pero no modificó filas, asegurar actualización por audio_url
+        const rutaAudio = song.audio_url || song.url;
+        if (rutaAudio) {
+          const { error: errByUrl } = await supabase
+            .from('songs')
+            .update({ folder_id: targetFolderId })
+            .eq('audio_url', rutaAudio);
+          if (errByUrl) {
+            updateError = errByUrl;
+            console.error(`[Error Supabase] Falló la petición al mover la canción #${numeroCancion} ("${song.title || song.titulo}", ID: ${song.id}) por audio_url:`, errByUrl);
+          }
+        }
+      }
+    } catch (dbErr) {
+      updateError = dbErr;
+      console.error(`[Error Supabase] Excepción en petición al mover la canción #${numeroCancion} ("${song.title || song.titulo}", ID: ${song.id}) a "${targetFolderId}":`, dbErr);
+    }
+
+    // 2. Después del UPDATE, actualizar el estado local de React para reflejar el cambio inmediatamente sin recargar
     const updatedSong: Song = { ...song, folder_id: targetFolderId };
 
-    // 1. Actualización optimista inmediata en memoria de canciones
+    // Actualizar canciones en estado general (setSongs y setCanciones)
     setSongs((prev) =>
-      prev.map((s) => (String(s.id) === String(song.id) ? { ...s, folder_id: targetFolderId } : s))
-    );
-    setCanciones((prev) =>
-      prev.map((s) => (String(s.id) === String(song.id) ? { ...s, folder_id: targetFolderId } : s))
+      prev.map((s) => {
+        const matchId = String(s.id) === String(song.id);
+        const matchUrl = (s.audio_url && song.audio_url && s.audio_url === song.audio_url) ||
+                         (s.url && song.url && s.url === song.url);
+        return matchId || matchUrl ? { ...s, folder_id: targetFolderId } : s;
+      })
     );
 
-    // 2. Actualizar listas de carpetas (actualiza inmediatamente los contadores verdes y contenidos)
+    setCanciones((prev) =>
+      prev.map((s) => {
+        const matchId = String(s.id) === String(song.id);
+        const matchUrl = (s.audio_url && song.audio_url && s.audio_url === song.audio_url) ||
+                         (s.url && song.url && s.url === song.url);
+        return matchId || matchUrl ? { ...s, folder_id: targetFolderId } : s;
+      })
+    );
+
+    // Actualizar listas de carpetas (actualiza inmediatamente los contadores verdes y contenidos)
     const updatedFolders = folders.map((f) => {
-      let list = (f.canciones || []).filter((c) => String(c.id) !== String(song.id));
+      const listSinCancion = (f.canciones || []).filter((c) => {
+        const matchId = String(c.id) === String(song.id);
+        const matchUrl = (c.audio_url && song.audio_url && c.audio_url === song.audio_url) ||
+                         (c.url && song.url && c.url === song.url);
+        return !matchId && !matchUrl;
+      });
+
       if (f.id === targetFolderId) {
-        list = [updatedSong, ...list];
+        return { ...f, canciones: [updatedSong, ...listSinCancion] };
       }
-      return { ...f, canciones: list };
+      return { ...f, canciones: listSinCancion };
     });
     saveFolders(updatedFolders);
 
+    // Actualizar selectedFolder para que la vista detallada abierta de la carpeta refleje el cambio al instante
     if (selectedFolder) {
       const refreshed = updatedFolders.find((f) => f.id === selectedFolder.id);
-      if (refreshed) setSelectedFolder(refreshed);
+      if (refreshed) {
+        setSelectedFolder(refreshed);
+      }
     }
+
+    // Actualizar currentSong si la canción en reproducción fue la que se movió
+    setCurrentSong((prev) => {
+      if (!prev) return null;
+      const matchId = String(prev.id) === String(song.id);
+      const matchUrl = (prev.audio_url && song.audio_url && prev.audio_url === song.audio_url) ||
+                       (prev.url && song.url && prev.url === song.url);
+      return matchId || matchUrl ? { ...prev, folder_id: targetFolderId } : prev;
+    });
 
     // 3. Guardar metadatos locales para persistencia offline
     const ruta = song.audio_url || song.url;
@@ -1336,25 +1681,16 @@ USING (bucket_id = 'musica');`;
       });
     }
 
-    triggerToast(`¡"${song.title || song.titulo}" movida a "${target.titulo}"!`, 'success');
+    // Cerrar modal de mover y menú
     setShowMoveModal(false);
     setShowSongMenuModal(false);
     setSelectedSongForMenu(null);
 
-    // 4. Actualizar registro en Supabase usando UPDATE
-    try {
-      if (!String(song.id).startsWith('local_') && !String(song.id).startsWith('r2_')) {
-        const { error: updateError } = await supabase
-          .from('songs')
-          .update({ folder_id: targetFolderId })
-          .eq('id', song.id);
-
-        if (updateError) {
-          console.warn('Aviso al actualizar folder_id en Supabase:', updateError.message);
-        }
-      }
-    } catch (dbErr) {
-      console.warn('Excepción al hacer UPDATE en Supabase:', dbErr);
+    // Feedback al usuario
+    if (updateError) {
+      triggerToast(`Movida localmente a "${target.titulo}", pero ocurrió un error en Supabase (ver consola)`, 'error');
+    } else {
+      triggerToast(`¡"${song.title || song.titulo}" movida a "${target.titulo}"!`, 'success');
     }
   };
 
@@ -1481,13 +1817,181 @@ USING (bucket_id = 'musica');`;
   };
 
   // ==========================================
-  // SUBIDA AL STORAGE SUPABASE CON DEEPSEEK & GEMINI IA
+  // SUBIDA DIRECTA DE AUDIOS A LA CARPETA ACTUAL (CLOUDFLARE R2 + SUPABASE)
+  // ==========================================
+  const handleFolderDirectUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const currentFolderId = selectedFolder?.id || targetFolderId || 'buchonass';
+    const folderObj = folders.find((f) => f.id === currentFolderId) || selectedFolder;
+
+    setIsDirectFolderUploading(true);
+    let subidasExitosas = 0;
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          const id3 = await extractAudioMetadataFromFile(file);
+          const fast = parseSmartAudioName(file.name);
+          const songTitle = id3.title || fast.titulo || file.name.replace(/\.[^/.]+$/, '').replace(/_/g, ' ');
+          const songArtist =
+            id3.artist ||
+            (folderObj && folderObj.titulo !== 'tus_me_gusta' && fast.artista === 'Artista'
+              ? folderObj.titulo
+              : fast.artista) ||
+            'Artista';
+
+          const promptClean = encodeURIComponent(
+            `${songArtist} ${songTitle} album cover art masterpiece vibrant 4k`
+          );
+          const cover =
+            id3.coverUrl ||
+            `https://image.pollinations.ai/prompt/${promptClean}?width=512&height=512&nologo=true`;
+
+          // 1. Subir archivo a Cloudflare R2 con PutObjectCommand
+          let publicUrl = '';
+          try {
+            publicUrl = await uploadToR2(file);
+            console.log(`[R2] Archivo ${i + 1}/${files.length} "${file.name}" subido a R2:`, publicUrl);
+          } catch (r2Err: any) {
+            console.error('Error al subir a Cloudflare R2:', r2Err);
+            alert(
+              `Error al subir a Cloudflare R2:\n\n${r2Err?.message || r2Err}\n\nVerifica tus credenciales de Cloudflare R2 (VITE_R2_ACCESS_KEY_ID, VITE_R2_SECRET_ACCESS_KEY, VITE_R2_ENDPOINT, VITE_R2_BUCKET_NAME) y la configuración de CORS en tu bucket.`
+            );
+            throw r2Err;
+          }
+
+          // 2. Guardar en Supabase tabla 'songs' asignando el folder_id de la carpeta actual
+          let dbRecord: any = null;
+          try {
+            const { data: songInserted, error: insertError } = await supabase
+              .from('songs')
+              .insert([
+                {
+                  title: songTitle,
+                  artist: songArtist,
+                  cover_url: cover,
+                  audio_url: publicUrl,
+                  folder_id: currentFolderId
+                }
+              ])
+              .select()
+              .single();
+
+            if (insertError) {
+              console.error('Error al insertar en Supabase con folder_id:', insertError);
+              alert(
+                `Error al guardar en Supabase:\n\n${insertError.message || JSON.stringify(insertError)}`
+              );
+            } else {
+              dbRecord = songInserted;
+            }
+          } catch (supaErr: any) {
+            console.error('Excepción al guardar en Supabase:', supaErr);
+            alert(`Error de red o conexión con Supabase:\n\n${supaErr?.message || supaErr}`);
+          }
+
+          const nuevaCancion: Song = {
+            id: dbRecord?.id || ('r2_' + Date.now() + '_' + i),
+            title: songTitle,
+            artist: songArtist,
+            titulo: songTitle,
+            artista: songArtist,
+            cover_url: cover,
+            cover: cover,
+            audio_url: publicUrl,
+            url: publicUrl,
+            storage_path: publicUrl,
+            created_at: dbRecord?.created_at || new Date().toISOString(),
+            folder_id: currentFolderId,
+            lyrics: id3.lyrics || undefined
+          };
+
+          // 3. Actualizar catálogo general de canciones
+          setSongs((prev) => [
+            nuevaCancion,
+            ...prev.filter((s) => String(s.id) !== String(nuevaCancion.id))
+          ]);
+          setCanciones((prev) => [
+            nuevaCancion,
+            ...prev.filter((s) => String(s.id) !== String(nuevaCancion.id))
+          ]);
+
+          // 4. Actualizar estado de las carpetas
+          setFolders((prevFolders) => {
+            const next = prevFolders.map((f) => {
+              if (f.id === currentFolderId) {
+                return {
+                  ...f,
+                  canciones: [
+                    nuevaCancion,
+                    ...(f.canciones || []).filter((c) => String(c.id) !== String(nuevaCancion.id))
+                  ]
+                };
+              }
+              return f;
+            });
+            saveFolders(next);
+            return next;
+          });
+
+          // 5. Actualizar la vista de la carpeta activa inmediatamente
+          setSelectedFolder((prev) => {
+            if (prev && prev.id === currentFolderId) {
+              return {
+                ...prev,
+                canciones: [
+                  nuevaCancion,
+                  ...(prev.canciones || []).filter((c) => String(c.id) !== String(nuevaCancion.id))
+                ]
+              };
+            }
+            return prev;
+          });
+
+          // 6. Guardar metadatos locales y persistencia de letras
+          guardarMetadatoCancion(publicUrl, {
+            titulo: songTitle,
+            artista: songArtist,
+            cover,
+            folderId: currentFolderId,
+            url: publicUrl,
+            created_at: nuevaCancion.created_at || new Date().toISOString(),
+            lyrics: id3.lyrics || undefined
+          });
+          guardarLetraPersistente(nuevaCancion.id, publicUrl, songTitle, songArtist, id3.lyrics);
+
+          subidasExitosas++;
+        } catch (fileErr) {
+          console.error(`Error procesando archivo "${file.name}":`, fileErr);
+          break;
+        }
+      }
+
+      if (subidasExitosas > 0) {
+        triggerToast(
+          `¡${subidasExitosas} audio(s) agregado(s) a "${folderObj?.titulo || currentFolderId}"!`,
+          'success'
+        );
+      }
+    } finally {
+      setIsDirectFolderUploading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  // ==========================================
+  // SUBIDA AL STORAGE CON DEEPSEEK & GEMINI IA (MODAL COMPLETO)
   // ==========================================
   async function subirCancion(file: File) {
     if (!file) {
       alert('Por favor selecciona un archivo de audio MP3.');
       return;
     }
+
+    const destFolder = targetFolderId || selectedFolder?.id || 'tus_me_gusta';
+    const folderObj = folders.find((f) => f.id === destFolder) || selectedFolder;
 
     setIsUploading(true);
     setUploadStatus('✨ IA reconociendo título y artista musical...');
@@ -1526,7 +2030,7 @@ USING (bucket_id = 'musica');`;
       } catch (_) {}
     }
 
-    // 2. Respaldo inteligente si la IA o la red no respondieron: nunca dejar "Desconocido"
+    // 2. Respaldo inteligente si la IA o la red no respondieron
     if (!songTitle || !songArtist || songArtist.toLowerCase() === 'desconocido') {
       const fast = parseSmartAudioName(file.name);
       if (!songTitle) songTitle = fast.titulo;
@@ -1580,14 +2084,13 @@ USING (bucket_id = 'musica');`;
         console.log('Archivo subido exitosamente a Cloudflare R2:', publicUrl);
       } catch (r2Error: any) {
         console.error('Error al subir a Cloudflare R2:', r2Error);
-        triggerToast(
-          `Error al subir a Cloudflare R2: ${r2Error?.message || 'Verifica tus credenciales y configuración CORS en Cloudflare R2'}`,
-          'error'
+        alert(
+          `Error al subir a Cloudflare R2:\n\n${r2Error?.message || r2Error}\n\nVerifica tus credenciales y configuración CORS en Cloudflare R2.`
         );
         throw r2Error;
       }
 
-      // 2. INSERT directo en la tabla 'songs' de Supabase con la URL pública de R2
+      // 2. INSERT directo en la tabla 'songs' de Supabase con folder_id de la carpeta de destino
       setUploadStatus(`Guardando "${songTitle}" en Supabase...`);
       let dbRecord: any = null;
       try {
@@ -1599,7 +2102,7 @@ USING (bucket_id = 'musica');`;
               artist: songArtist,
               cover_url: finalCover,
               audio_url: publicUrl,
-              folder_id: 'tus_me_gusta'
+              folder_id: destFolder
             }
           ])
           .select()
@@ -1607,30 +2110,13 @@ USING (bucket_id = 'musica');`;
 
         if (insertError) {
           console.warn('Nota en INSERT de tabla songs con folder_id:', insertError.message);
-          // Reintento sin folder_id en caso de que la columna aún no exista en Supabase
-          const { data: retryInsert, error: retryError } = await supabase
-            .from('songs')
-            .insert([
-              {
-                title: songTitle,
-                artist: songArtist,
-                cover_url: finalCover,
-                audio_url: publicUrl
-              }
-            ])
-            .select()
-            .single();
-          if (retryError) {
-            console.warn('Error en reintento de guardado en Supabase:', retryError.message);
-          } else {
-            dbRecord = retryInsert;
-          }
+          alert(`Aviso al guardar en Supabase:\n\n${insertError.message}`);
         } else {
           dbRecord = songInserted;
         }
       } catch (insertErr: any) {
-        console.warn('Excepción al insertar en tabla songs:', insertErr);
-        triggerToast(`Aviso al guardar en Supabase: ${insertErr?.message || insertErr}`, 'error');
+        console.error('Excepción al insertar en tabla songs:', insertErr);
+        alert(`Error al guardar en Supabase:\n\n${insertErr?.message || insertErr}`);
       }
 
       const nuevaCancion: Song = {
@@ -1645,24 +2131,46 @@ USING (bucket_id = 'musica');`;
         url: publicUrl,
         storage_path: publicUrl,
         created_at: dbRecord?.created_at || new Date().toISOString(),
-        folder_id: 'tus_me_gusta',
+        folder_id: destFolder,
         lyrics: fileLyrics || undefined
       };
 
-      // 3. Guardar metadatos locales y persistentes (en tus_me_gusta)
+      // 3. Guardar metadatos locales y persistentes en la carpeta de destino
       guardarMetadatoCancion(publicUrl, {
         titulo: songTitle,
         artista: songArtist,
         cover: finalCover,
-        folderId: 'tus_me_gusta',
+        folderId: destFolder,
         url: publicUrl,
         created_at: nuevaCancion.created_at || new Date().toISOString(),
         lyrics: fileLyrics || undefined
       });
       guardarLetraPersistente(nuevaCancion.id, publicUrl, songTitle, songArtist, fileLyrics);
 
-      // 4. Agregar a la lista general / Tus me gusta (el usuario puede moverla luego con ⋮)
-      agregarCancionACarpeta('tus_me_gusta', nuevaCancion);
+      // 4. Agregar a la carpeta destino
+      setFolders((prevFolders) => {
+        const next = prevFolders.map((f) => {
+          if (f.id === destFolder) {
+            return {
+              ...f,
+              canciones: [nuevaCancion, ...(f.canciones || []).filter((c) => String(c.id) !== String(nuevaCancion.id))]
+            };
+          }
+          return f;
+        });
+        saveFolders(next);
+        return next;
+      });
+
+      setSelectedFolder((prev) => {
+        if (prev && prev.id === destFolder) {
+          return {
+            ...prev,
+            canciones: [nuevaCancion, ...(prev.canciones || []).filter((c) => String(c.id) !== String(nuevaCancion.id))]
+          };
+        }
+        return prev;
+      });
 
       // 5. Actualizar los estados de la interfaz
       setSongs((prev) => [nuevaCancion, ...prev.filter((s) => String(s.id) !== String(nuevaCancion.id))]);
@@ -1672,7 +2180,7 @@ USING (bucket_id = 'musica');`;
       setCurrentSong(nuevaCancion);
       setIsPlaying(true);
 
-      triggerToast(`✨ ¡"${songTitle}" por ${songArtist} guardada exitosamente en Cloudflare R2!`, 'success');
+      triggerToast(`✨ ¡"${songTitle}" guardada exitosamente en "${folderObj?.titulo || destFolder}"!`, 'success');
 
       setShowUploadModal(false);
       setSelectedFile(null);
@@ -1683,7 +2191,8 @@ USING (bucket_id = 'musica');`;
       setCustomCoverUrl('');
       setAiIdentifiedInfo(null);
     } catch (error: any) {
-      console.warn('Fallo en subirCancion a R2:', error);
+      console.error('Fallo en subirCancion a R2 o Supabase:', error);
+      alert(`Error al subir la canción:\n\n${error?.message || error}\n\nVerifica las credenciales de Cloudflare R2 y CORS.`);
     } finally {
       setIsUploading(false);
       setUploadStatus('');
@@ -2283,16 +2792,37 @@ USING (bucket_id = 'musica');`;
     const map = new Map<string, Song>();
     for (const c of matchingSongs) {
       map.set(String(c.id), c);
+      if (c.audio_url) map.set(c.audio_url, c);
     }
+
     // Compatibilidad con canciones presentes en la memoria de la carpeta
     for (const c of currentFolderData.canciones || []) {
       const fid = c.folder_id || 'tus_me_gusta';
-      if (fid === folder.id && !map.has(String(c.id))) {
+      // Si la canción existe en allSongs con otra carpeta, ya no pertenece aquí
+      const movedToAnotherFolder = allSongs.some((s) => {
+        const matchId = String(s.id) === String(c.id);
+        const matchUrl = (s.audio_url && c.audio_url && s.audio_url === c.audio_url) ||
+                         (s.url && c.url && s.url === c.url);
+        return (matchId || matchUrl) && (s.folder_id || 'tus_me_gusta') !== folder.id;
+      });
+
+      const alreadyInMap = map.has(String(c.id)) || (c.audio_url && map.has(c.audio_url));
+      if (!movedToAnotherFolder && fid === folder.id && !alreadyInMap) {
         map.set(String(c.id), c);
       }
     }
 
-    return Array.from(map.values());
+    const seen = new Set<string>();
+    const result: Song[] = [];
+    for (const songItem of map.values()) {
+      const key = String(songItem.id) || songItem.audio_url || songItem.url;
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(songItem);
+      }
+    }
+
+    return result;
   };
 
   const toggleLikeFolder = (folderId: string) => {
@@ -2341,7 +2871,7 @@ USING (bucket_id = 'musica');`;
 
           <div className="flex-1 text-center sm:text-left min-w-0">
             <div className="text-xs font-bold text-emerald-400 uppercase tracking-widest flex items-center justify-center sm:justify-start gap-1.5">
-              <span>FINANCIERA AARON</span>
+              <span>{appName}</span>
               <span>•</span>
               <span>CARPETA DE AUDIOS</span>
             </div>
@@ -2396,32 +2926,58 @@ USING (bucket_id = 'musica');`;
             <Heart className={`w-5 h-5 ${folderLiked[currentFolderState.id] ? 'fill-current' : ''}`} />
           </button>
 
-          {/* Botón 1: Agregar música a esta carpeta (de la biblioteca) */}
-          <button
-            onClick={() => {
-              setSelectedFolder(currentFolderState);
-              setShowAddMusicToCurrentFolderModal(true);
-            }}
-            className="px-4 py-2.5 rounded-full text-xs sm:text-sm font-bold bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-2 shadow-lg transition active:scale-95"
-            title="Agregar canciones existentes de la biblioteca a esta carpeta"
-          >
-            <Plus className="w-4 h-4 stroke-[3]" />
-            <span>+ Agregar música</span>
-          </button>
+          {/* Acciones de administración de carpeta (Solo Administrador) */}
+          {isAdmin && (
+            <>
+              {/* Input oculto para subida directa de audio a la carpeta actual */}
+              <input
+                ref={folderDirectFileInputRef}
+                type="file"
+                accept="audio/*,audio/mp3,audio/mpeg,audio/wav,audio/m4a,audio/aac,audio/flac,audio/ogg,.mp3,.wav,.m4a"
+                multiple
+                onChange={handleFolderDirectUpload}
+                className="hidden"
+              />
 
-          {/* Botón 2: Subir MP3 con DeepSeek IA a esta carpeta */}
-          <button
-            onClick={() => {
-              setTargetFolderId(currentFolderState.id);
-              setCustomArtist(currentFolderState.titulo);
-              setShowUploadModal(true);
-            }}
-            className="px-4 py-2.5 rounded-full text-xs sm:text-sm font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white flex items-center gap-2 shadow-lg transition active:scale-95"
-            title="Subir un archivo MP3 e identificarlo con IA para esta carpeta"
-          >
-            <Sparkles className="w-4 h-4 text-yellow-300" />
-            <span>Subir MP3 con IA</span>
-          </button>
+              {/* Botón: + Agregar música */}
+              <button
+                onClick={() => {
+                  if (!isDirectFolderUploading) {
+                    folderDirectFileInputRef.current?.click();
+                  }
+                }}
+                disabled={isDirectFolderUploading}
+                className="px-4 py-2.5 rounded-full text-xs sm:text-sm font-bold bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white flex items-center gap-2 shadow-lg transition active:scale-95"
+                title="Seleccionar y subir archivos de audio directamente a esta carpeta"
+              >
+                {isDirectFolderUploading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    <span>Subiendo...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4 stroke-[3]" />
+                    <span>+ Agregar música</span>
+                  </>
+                )}
+              </button>
+
+              {/* Botón: Subir MP3 con DeepSeek IA a esta carpeta */}
+              <button
+                onClick={() => {
+                  setTargetFolderId(currentFolderState.id);
+                  setCustomArtist(currentFolderState.titulo);
+                  setShowUploadModal(true);
+                }}
+                className="px-4 py-2.5 rounded-full text-xs sm:text-sm font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white flex items-center gap-2 shadow-lg transition active:scale-95"
+                title="Subir un archivo MP3 e identificarlo con IA para esta carpeta"
+              >
+                <Sparkles className="w-4 h-4 text-yellow-300" />
+                <span>Subir MP3 con IA</span>
+              </button>
+            </>
+          )}
         </div>
 
         {/* Lista de Pistas / Audios de la Carpeta */}
@@ -2429,118 +2985,306 @@ USING (bucket_id = 'musica');`;
           <div className="px-3 py-2 flex items-center text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-white/5">
             <span className="w-8 text-center">#</span>
             <span className="flex-1">Título y Artista</span>
-            <span className="w-28 text-right pr-2">Acciones</span>
+            {isAdmin && <span className="w-28 text-right pr-2">Acciones</span>}
           </div>
 
           {cancionesCarpeta.length === 0 ? (
             <div className="p-10 text-center bg-[#181818] rounded-2xl border border-white/5 text-gray-400 space-y-3">
               <Folder className="w-12 h-12 mx-auto text-gray-500" />
               <p className="text-base font-bold text-white">Esta carpeta aún no tiene canciones</p>
-              <p className="text-xs sm:text-sm max-w-sm mx-auto">
-                Toca en <strong className="text-blue-400">&quot;+ Agregar música&quot;</strong> para elegir canciones o en <strong className="text-pink-400">&quot;Subir MP3 con IA&quot;</strong>.
-              </p>
-              <div className="flex justify-center gap-2.5 pt-2">
-                <button
-                  onClick={() => setShowAddMusicToCurrentFolderModal(true)}
-                  className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-blue-600 text-white hover:bg-blue-500 transition"
-                >
-                  Elegir de la biblioteca
-                </button>
-              </div>
+              {isAdmin ? (
+                <>
+                  <p className="text-xs sm:text-sm max-w-sm mx-auto">
+                    Toca en <strong className="text-blue-400">&quot;+ Agregar música&quot;</strong> para subir audios directamente o en <strong className="text-pink-400">&quot;Subir MP3 con IA&quot;</strong>.
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2.5 pt-2">
+                    <button
+                      onClick={() => {
+                        if (!isDirectFolderUploading) {
+                          folderDirectFileInputRef.current?.click();
+                        }
+                      }}
+                      disabled={isDirectFolderUploading}
+                      className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white flex items-center gap-2 transition"
+                    >
+                      {isDirectFolderUploading ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                          <span>Subiendo...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-4 h-4 stroke-[3]" />
+                          <span>+ Agregar música</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setTargetFolderId(currentFolderState.id);
+                        setCustomArtist(currentFolderState.titulo);
+                        setShowUploadModal(true);
+                      }}
+                      className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white flex items-center gap-2 shadow-lg transition active:scale-95"
+                    >
+                      <Sparkles className="w-4 h-4 text-yellow-300" />
+                      <span>Subir MP3 con IA</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs sm:text-sm text-gray-400">
+                  El administrador agregará música a esta carpeta próximamente.
+                </p>
+              )}
             </div>
           ) : (
-            cancionesCarpeta.map((cancion, idx) => {
-              const esActual = currentSong?.id === cancion.id;
-              const sonando = esActual && isPlaying;
+            <>
+              {cancionesCarpeta.slice(0, folderPageSize).map((cancion, idx) => {
+                const esActual = currentSong?.id === cancion.id;
+                const sonando = esActual && isPlaying;
 
-              return (
-                <div
-                  key={cancion.id}
-                  onClick={() => seleccionarCancion(cancion)}
-                  className={`group flex items-center px-3 py-3 rounded-xl cursor-pointer transition select-none ${
-                    esActual
-                      ? 'bg-white/10 text-white border border-emerald-500/30'
-                      : 'hover:bg-white/5 text-gray-200'
-                  }`}
-                >
-                  {/* Número o Indicador de reproducción */}
-                  <div className="w-8 flex items-center justify-center shrink-0">
-                    {sonando ? (
-                      <div className="flex items-end gap-0.5 h-4">
-                        <span className="w-1 bg-[#1ED760] h-full animate-bounce rounded-full" />
-                        <span className="w-1 bg-[#1ED760] h-2.5 animate-bounce rounded-full [animation-delay:0.2s]" />
-                        <span className="w-1 bg-[#1ED760] h-3.5 animate-bounce rounded-full [animation-delay:0.4s]" />
+                return (
+                  <div
+                    key={cancion.id}
+                    onClick={() => seleccionarCancion(cancion)}
+                    className={`group flex items-center px-3 py-3 rounded-xl cursor-pointer transition select-none ${
+                      esActual
+                        ? 'bg-white/10 text-white border border-emerald-500/30'
+                        : 'hover:bg-white/5 text-gray-200'
+                    }`}
+                  >
+                    {/* Número o Indicador de reproducción */}
+                    <div className="w-8 flex items-center justify-center shrink-0">
+                      {sonando ? (
+                        <div className="flex items-end gap-0.5 h-4">
+                          <span className="w-1 bg-[#1ED760] h-full animate-bounce rounded-full" />
+                          <span className="w-1 bg-[#1ED760] h-2.5 animate-bounce rounded-full [animation-delay:0.2s]" />
+                          <span className="w-1 bg-[#1ED760] h-3.5 animate-bounce rounded-full [animation-delay:0.4s]" />
+                        </div>
+                      ) : (
+                        <span className={`text-sm font-semibold ${esActual ? 'text-[#1ED760]' : 'text-gray-400 group-hover:hidden'}`}>
+                          {idx + 1}
+                        </span>
+                      )}
+                      {!sonando && (
+                        <Play className="w-4 h-4 text-white hidden group-hover:block ml-0.5 fill-current" />
+                      )}
+                    </div>
+
+                    {/* Portada miniatura */}
+                    <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0 mx-2.5 shadow bg-neutral-800">
+                      {renderCover(cancion.cover_url || cancion.cover || currentFolderState.coverKey, 'w-full h-full object-cover')}
+                    </div>
+
+                    {/* Datos de la Pista (Letras un poco más grandes) */}
+                    <div className="flex-1 min-w-0 pr-2">
+                      <p
+                        className={`text-sm sm:text-base font-bold truncate leading-tight ${
+                          esActual ? 'text-[#1ED760]' : 'text-white'
+                        }`}
+                      >
+                        {cancion.title || cancion.titulo}
+                      </p>
+                      <p className="text-xs sm:text-sm text-gray-400 truncate mt-0.5 font-medium">
+                        {cancion.artist || cancion.artista}
+                      </p>
+                    </div>
+
+                    {/* Botones de acción (Solo Administrador): Menú de opciones (⋮), Quitar de carpeta y Eliminar */}
+                    {isAdmin && (
+                      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                        {/* Botón: Menú de opciones (Mover a carpeta) */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedSongForMenu(cancion);
+                            setShowSongMenuModal(true);
+                          }}
+                          className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition active:scale-90"
+                          title="Opciones (Mover a carpeta)"
+                        >
+                          <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </button>
+
+                        {/* Botón: Quitar de esta carpeta */}
+                        <button
+                          onClick={(e) => quitarCancionDeCarpeta(currentFolderState.id, cancion.id, e)}
+                          className="p-2 text-amber-400 hover:text-amber-300 hover:bg-amber-400/10 rounded-lg transition"
+                          title="Quitar de esta carpeta"
+                        >
+                          <MinusCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </button>
+
+                        {/* Botón: Eliminar canción permanentemente */}
+                        <button
+                          onClick={(e) => eliminarCancion(cancion, e)}
+                          className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition"
+                          title="Eliminar canción permanentemente"
+                        >
+                          <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </button>
                       </div>
-                    ) : (
-                      <span className={`text-sm font-semibold ${esActual ? 'text-[#1ED760]' : 'text-gray-400 group-hover:hidden'}`}>
-                        {idx + 1}
-                      </span>
-                    )}
-                    {!sonando && (
-                      <Play className="w-4 h-4 text-white hidden group-hover:block ml-0.5 fill-current" />
                     )}
                   </div>
+                );
+              })}
 
-                  {/* Portada miniatura */}
-                  <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0 mx-2.5 shadow bg-neutral-800">
-                    {renderCover(cancion.cover_url || cancion.cover || currentFolderState.coverKey, 'w-full h-full object-cover')}
-                  </div>
-
-                  {/* Datos de la Pista (Letras un poco más grandes) */}
-                  <div className="flex-1 min-w-0 pr-2">
-                    <p
-                      className={`text-sm sm:text-base font-bold truncate leading-tight ${
-                        esActual ? 'text-[#1ED760]' : 'text-white'
-                      }`}
-                    >
-                      {cancion.title || cancion.titulo}
-                    </p>
-                    <p className="text-xs sm:text-sm text-gray-400 truncate mt-0.5 font-medium">
-                      {cancion.artist || cancion.artista}
-                    </p>
-                  </div>
-
-                  {/* Botones de acción: Menú de opciones (⋮), Quitar de carpeta y Eliminar */}
-                  <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                    {/* Botón: Menú de opciones (Mover a carpeta) */}
+              {/* Controles de paginación de 50 en 50 para alto rendimiento */}
+              {cancionesCarpeta.length > folderPageSize && (
+                <div className="pt-4 pb-2 flex flex-col sm:flex-row items-center justify-between gap-3 p-4 bg-[#18181a] rounded-2xl border border-white/5 shadow-md">
+                  <span className="text-xs text-gray-400 font-medium">
+                    Mostrando <strong className="text-white">{Math.min(folderPageSize, cancionesCarpeta.length)}</strong> de <strong className="text-emerald-400">{cancionesCarpeta.length}</strong> audios en esta carpeta
+                  </span>
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedSongForMenu(cancion);
-                        setShowSongMenuModal(true);
-                      }}
-                      className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition active:scale-90"
-                      title="Opciones (Mover a carpeta)"
+                      onClick={() => setFolderPageSize((prev) => prev + 50)}
+                      className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow active:scale-95 flex items-center gap-1.5"
                     >
-                      <MoreVertical className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                      <span>Cargar 50 más</span>
                     </button>
-
-                    {/* Botón: Quitar de esta carpeta */}
                     <button
-                      onClick={(e) => quitarCancionDeCarpeta(currentFolderState.id, cancion.id, e)}
-                      className="p-2 text-amber-400 hover:text-amber-300 hover:bg-amber-400/10 rounded-lg transition"
-                      title="Quitar de esta carpeta"
+                      onClick={() => setFolderPageSize(cancionesCarpeta.length)}
+                      className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition border border-white/10 active:scale-95"
                     >
-                      <MinusCircle className="w-4 h-4 sm:w-5 sm:h-5" />
-                    </button>
-
-                    {/* Botón: Eliminar canción permanentemente */}
-                    <button
-                      onClick={(e) => eliminarCancion(cancion, e)}
-                      className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition"
-                      title="Eliminar canción permanentemente"
-                    >
-                      <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                      Mostrar todas ({cancionesCarpeta.length})
                     </button>
                   </div>
                 </div>
-              );
-            })
+              )}
+            </>
           )}
         </div>
       </div>
     );
   };
+
+  // Si la sesión aún se está verificando inicialmente
+  if (sessionLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen w-screen bg-[#121212] text-white select-none">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-600 to-[#1ED760] flex items-center justify-center shadow-2xl shadow-emerald-500/30 animate-pulse mb-4">
+          <Music className="w-7 h-7 text-black stroke-[2.5]" />
+        </div>
+        <p className="text-sm font-semibold text-gray-400">Verificando sesión segura...</p>
+      </div>
+    );
+  }
+
+  // 1. PANTALLA DE LOGIN: Mostrar solo si NO hay sesión activa (campos en blanco por defecto)
+  if (!user) {
+    return (
+      <div className="min-h-screen w-screen bg-gradient-to-b from-[#18181b] via-[#121212] to-[#0a0a0a] text-white flex flex-col justify-center items-center p-4 sm:p-6 select-none relative overflow-hidden">
+        {/* Glow decorativo de fondo */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="w-full max-w-md bg-[#18181a]/95 backdrop-blur-xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl relative z-10 animate-fade-in">
+          {/* Encabezado con Nombre Dinámico de la App */}
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-emerald-600 to-[#1ED760] flex items-center justify-center shadow-xl shadow-emerald-500/25 mb-3.5">
+              <Music className="w-8 h-8 text-black stroke-[2.5]" />
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+              {appName}
+            </h1>
+            <p className="text-xs sm:text-sm text-gray-400 mt-1">
+              {isSignUpMode
+                ? 'Crea tu cuenta para acceder a la música'
+                : 'Inicia sesión con tu correo y contraseña'}
+            </p>
+          </div>
+
+          {/* Banner de alerta de error */}
+          {authError && (
+            <div className="mb-5 p-3.5 bg-red-950/60 border border-red-500/40 rounded-2xl flex items-start gap-2.5 text-xs text-red-200">
+              <AlertCircle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
+              <div className="flex-1">
+                <span className="font-medium">{authError}</span>
+                {authError.toLowerCase().includes('invalid login credentials') && !isSignUpMode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsSignUpMode(true);
+                      setAuthError(null);
+                    }}
+                    className="block mt-1 text-emerald-400 hover:underline font-bold"
+                  >
+                    ¿No tienes cuenta aún? Regístrate aquí
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-300 mb-1.5 uppercase tracking-wider">
+                Correo Electrónico
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="tu@correo.com"
+                className="w-full px-4 py-3 bg-[#111113] border border-white/10 rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1ED760] focus:ring-1 focus:ring-[#1ED760] transition"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-300 mb-1.5 uppercase tracking-wider">
+                Contraseña
+              </label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full px-4 py-3 bg-[#111113] border border-white/10 rounded-xl text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#1ED760] focus:ring-1 focus:ring-[#1ED760] transition"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoggingIn}
+              className="w-full py-3 px-4 rounded-xl font-black text-sm bg-[#1ED760] hover:bg-[#1db954] text-black shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+            >
+              {isLoggingIn ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin text-black" />
+                  <span>{isSignUpMode ? 'Creando cuenta...' : 'Iniciando sesión...'}</span>
+                </>
+              ) : (
+                <span>{isSignUpMode ? 'Crear Cuenta' : 'Iniciar Sesión'}</span>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-6 pt-5 border-t border-white/10 text-center">
+            <button
+              type="button"
+              onClick={() => {
+                setIsSignUpMode(!isSignUpMode);
+                setAuthError(null);
+              }}
+              className="text-xs text-gray-300 hover:text-[#1ED760] transition font-semibold"
+            >
+              {isSignUpMode
+                ? '¿Ya tienes una cuenta? Iniciar Sesión'
+                : '¿No tienes cuenta? Regístrate aquí'}
+            </button>
+          </div>
+
+          <div className="mt-5 p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-center gap-2 text-[11px] text-gray-400">
+            <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Administrador: <strong className="text-gray-200">mejiamejiaaaron@gmail.com</strong></span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -2559,6 +3303,52 @@ USING (bucket_id = 'musica');`;
         className="hidden"
       />
 
+      {/* ==========================================
+          HEADER SUPERIOR CON NOMBRE DE APP, ROL, AJUSTES ADMIN Y CERRAR SESIÓN
+          ========================================== */}
+      <header className="px-4 py-2.5 flex items-center justify-between border-b border-white/5 bg-[#121212]/95 backdrop-blur-md shrink-0 z-20">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-[#1ED760] flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
+            <Music className="w-4 h-4 text-black stroke-[2.5]" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-sm sm:text-base font-black text-white tracking-tight truncate leading-tight">
+              {appName}
+            </h1>
+            <p className="text-[10px] text-gray-400 font-medium truncate">
+              {isAdmin ? '👑 Modo Administrador' : user.email}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Ícono de Ajustes Administrativos (Solo Administrador) */}
+          {isAdmin && (
+            <button
+              onClick={() => {
+                setTempAppName(appName);
+                cargarUsuariosBloqueados();
+                setShowAdminSettingsModal(true);
+              }}
+              className="px-2.5 py-1.5 rounded-full text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+              title="Ajustes Administrativos (Solo Administrador)"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Ajustes Admin</span>
+            </button>
+          )}
+
+          {/* Botón Cerrar Sesión (Visible para cualquier usuario autenticado) */}
+          <button
+            onClick={handleLogout}
+            className="px-2.5 py-1.5 rounded-full text-xs font-bold bg-red-500/15 hover:bg-red-500/25 text-red-400 hover:text-white border border-red-500/30 flex items-center gap-1.5 transition active:scale-95 shadow-sm"
+            title="Cerrar Sesión"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Cerrar Sesión</span>
+          </button>
+        </div>
+      </header>
 
       {/* ==========================================
           BARRA SUPERIOR DE FILTROS (AVATAR + TODAS + MÚSICA + PODCASTS + AUDIOLIBROS)
@@ -2567,11 +3357,16 @@ USING (bucket_id = 'musica');`;
         {/* Avatar Usuario */}
         <div
           onClick={() => {
-            if (!user) setShowLoginModal(true);
-            else setShowDeployModal(true);
+            if (isAdmin) {
+              setTempAppName(appName);
+              cargarUsuariosBloqueados();
+              setShowAdminSettingsModal(true);
+            } else {
+              setShowDeployModal(true);
+            }
           }}
           className="relative w-8 h-8 rounded-full overflow-hidden shrink-0 cursor-pointer border border-white/20 active:scale-95 transition"
-          title={user ? user.email : 'Iniciar Sesión'}
+          title={isAdmin ? 'Ajustes Admin' : user.email || 'Usuario'}
         >
           <img
             src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
@@ -2688,15 +3483,17 @@ USING (bucket_id = 'musica');`;
           <span>Aleatorio</span>
         </button>
 
-        {/* 7. Botón Acción "+ Subir MP3" (100% funcional: abre modal de subida) */}
-        <button
-          onClick={() => setShowUploadModal(true)}
-          className="px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 flex items-center gap-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white active:scale-95 shadow-sm"
-          title="Subir archivos MP3 o carpetas"
-        >
-          <Plus className="w-3.5 h-3.5 stroke-[3]" />
-          <span>Subir MP3</span>
-        </button>
+        {/* 7. Botón Acción "+ Subir MP3" (Solo Administrador) */}
+        {isAdmin && (
+          <button
+            onClick={() => setShowUploadModal(true)}
+            className="px-3.5 py-1.5 rounded-full text-xs font-bold transition shrink-0 flex items-center gap-1.5 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white active:scale-95 shadow-sm"
+            title="Subir archivos MP3 o carpetas"
+          >
+            <Plus className="w-3.5 h-3.5 stroke-[3]" />
+            <span>Subir MP3</span>
+          </button>
+        )}
 
         {/* Botón rápido Instalar PWA en Celular */}
         <button
@@ -2945,14 +3742,16 @@ USING (bucket_id = 'musica');`;
                       <Shuffle className="w-3.5 h-3.5 text-[#1ED760]" />
                       <span>Aleatorio</span>
                     </button>
-                    <button
-                      onClick={() => setShowUploadModal(true)}
-                      className="px-3.5 py-2 rounded-full bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
-                      title="Subir nueva canción"
-                    >
-                      <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                      <span>+ Subir</span>
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => setShowUploadModal(true)}
+                        className="px-3.5 py-2 rounded-full bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
+                        title="Subir nueva canción"
+                      >
+                        <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                        <span>+ Subir</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -2962,102 +3761,132 @@ USING (bucket_id = 'musica');`;
                     <div className="p-8 text-center bg-[#181818] rounded-2xl border border-white/5 space-y-3">
                       <Music className="w-10 h-10 text-gray-500 mx-auto" />
                       <p className="text-sm font-bold text-white">No hay canciones cargadas aún</p>
-                      <p className="text-xs text-gray-400">Sube tus archivos MP3 o carpetas de música para comenzar a reproducir.</p>
-                      <button
-                        onClick={() => setShowUploadModal(true)}
-                        className="px-4 py-2 bg-[#1ED760] text-black font-bold text-xs rounded-full shadow hover:bg-[#1db954] transition"
-                      >
-                        Subir mi primer MP3
-                      </button>
+                      <p className="text-xs text-gray-400">
+                        {isAdmin ? 'Sube tus archivos MP3 o carpetas de música para comenzar a reproducir.' : 'El administrador agregará música a esta sección próximamente.'}
+                      </p>
+                      {isAdmin && (
+                        <button
+                          onClick={() => setShowUploadModal(true)}
+                          className="px-4 py-2 bg-[#1ED760] text-black font-bold text-xs rounded-full shadow hover:bg-[#1db954] transition"
+                        >
+                          Subir mi primer MP3
+                        </button>
+                      )}
                     </div>
                   ) : (
-                    (songs.length > 0 ? songs : canciones).map((cancion, idx) => {
-                      const esActual = currentSong?.id === cancion.id;
-                      const sonando = esActual && isPlaying;
-                      const esFav = favorites.includes(String(cancion.id));
+                    <>
+                      {(songs.length > 0 ? songs : canciones).slice(0, cancionesPageSize).map((cancion, idx) => {
+                        const esActual = currentSong?.id === cancion.id;
+                        const sonando = esActual && isPlaying;
+                        const esFav = favorites.includes(String(cancion.id));
 
-                      return (
-                        <div
-                          key={cancion.id}
-                          onClick={() => seleccionarCancion(cancion)}
-                          className={`group flex items-center px-3 py-2.5 rounded-xl cursor-pointer transition select-none ${
-                            esActual
-                              ? 'bg-white/10 text-white border border-[#1ED760]/40 shadow-md'
-                              : 'hover:bg-white/5 text-gray-200 bg-[#161616]'
-                          }`}
-                        >
-                          <div className="w-7 flex items-center justify-center shrink-0">
-                            {sonando ? (
-                              <div className="flex items-end gap-0.5 h-3.5">
-                                <span className="w-1 bg-[#1ED760] h-full animate-bounce rounded-full" />
-                                <span className="w-1 bg-[#1ED760] h-2 animate-bounce rounded-full [animation-delay:0.2s]" />
-                                <span className="w-1 bg-[#1ED760] h-3 animate-bounce rounded-full [animation-delay:0.4s]" />
-                              </div>
-                            ) : (
-                              <span className={`text-xs font-semibold ${esActual ? 'text-[#1ED760]' : 'text-gray-400 group-hover:hidden'}`}>
-                                {idx + 1}
-                              </span>
-                            )}
-                            {!sonando && (
-                              <Play className="w-3.5 h-3.5 text-white hidden group-hover:block ml-0.5 fill-current" />
-                            )}
-                          </div>
-
-                          <div className="w-11 h-11 rounded-lg overflow-hidden shrink-0 mx-2 shadow bg-neutral-900 border border-white/5">
-                            {renderCover(cancion.cover_url || cancion.cover, 'w-full h-full object-cover')}
-                          </div>
-
-                          <div className="flex-1 min-w-0 pr-2">
-                            <p className={`text-sm font-bold truncate leading-tight ${esActual ? 'text-[#1ED760]' : 'text-white'}`}>
-                              {cancion.title || cancion.titulo}
-                            </p>
-                            <p className="text-xs text-gray-400 truncate mt-0.5">
-                              {cancion.artist || cancion.artista}
-                            </p>
-                          </div>
-
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleFavorite(cancion);
-                              }}
-                              className="p-2 text-gray-400 hover:text-[#1ED760] rounded-lg transition active:scale-90"
-                              title={esFav ? 'Quitar de favoritos' : 'Añadir a favoritos'}
-                            >
-                              <Heart className={`w-4 h-4 ${esFav ? 'fill-current text-[#1ED760]' : ''}`} />
-                            </button>
-
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedSongForMenu(cancion);
-                                setShowSongMenuModal(true);
-                              }}
-                              className="p-2 text-gray-400 hover:text-white rounded-lg transition active:scale-90"
-                              title="Opciones de la canción (Mover a carpeta)"
-                            >
-                              <MoreVertical className="w-4 h-4" />
-                            </button>
-
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                seleccionarCancion(cancion);
-                              }}
-                              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white text-white hover:text-black flex items-center justify-center transition active:scale-95 ml-1"
-                              title={sonando ? 'Pausar' : 'Reproducir'}
-                            >
+                        return (
+                          <div
+                            key={cancion.id}
+                            onClick={() => seleccionarCancion(cancion)}
+                            className={`group flex items-center px-3 py-2.5 rounded-xl cursor-pointer transition select-none ${
+                              esActual
+                                ? 'bg-white/10 text-white border border-[#1ED760]/40 shadow-md'
+                                : 'hover:bg-white/5 text-gray-200 bg-[#161616]'
+                            }`}
+                          >
+                            <div className="w-7 flex items-center justify-center shrink-0">
                               {sonando ? (
-                                <Pause className="w-3.5 h-3.5 fill-current" />
+                                <div className="flex items-end gap-0.5 h-3.5">
+                                  <span className="w-1 bg-[#1ED760] h-full animate-bounce rounded-full" />
+                                  <span className="w-1 bg-[#1ED760] h-2 animate-bounce rounded-full [animation-delay:0.2s]" />
+                                  <span className="w-1 bg-[#1ED760] h-3 animate-bounce rounded-full [animation-delay:0.4s]" />
+                                </div>
                               ) : (
-                                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                                <span className={`text-xs font-semibold ${esActual ? 'text-[#1ED760]' : 'text-gray-400 group-hover:hidden'}`}>
+                                  {idx + 1}
+                                </span>
                               )}
+                              {!sonando && (
+                                <Play className="w-3.5 h-3.5 text-white hidden group-hover:block ml-0.5 fill-current" />
+                              )}
+                            </div>
+
+                            <div className="w-11 h-11 rounded-lg overflow-hidden shrink-0 mx-2 shadow bg-neutral-900 border border-white/5">
+                              {renderCover(cancion.cover_url || cancion.cover, 'w-full h-full object-cover')}
+                            </div>
+
+                            <div className="flex-1 min-w-0 pr-2">
+                              <p className={`text-sm font-bold truncate leading-tight ${esActual ? 'text-[#1ED760]' : 'text-white'}`}>
+                                {cancion.title || cancion.titulo}
+                              </p>
+                              <p className="text-xs text-gray-400 truncate mt-0.5">
+                                {cancion.artist || cancion.artista}
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleFavorite(cancion);
+                                }}
+                                className="p-2 text-gray-400 hover:text-[#1ED760] rounded-lg transition active:scale-90"
+                                title={esFav ? 'Quitar de favoritos' : 'Añadir a favoritos'}
+                              >
+                                <Heart className={`w-4 h-4 ${esFav ? 'fill-current text-[#1ED760]' : ''}`} />
+                              </button>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedSongForMenu(cancion);
+                                  setShowSongMenuModal(true);
+                                }}
+                                className="p-2 text-gray-400 hover:text-white rounded-lg transition active:scale-90"
+                                title="Opciones de la canción (Mover a carpeta)"
+                              >
+                                <MoreVertical className="w-4 h-4" />
+                              </button>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  seleccionarCancion(cancion);
+                                }}
+                                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white text-white hover:text-black flex items-center justify-center transition active:scale-95 ml-1"
+                                title={sonando ? 'Pausar' : 'Reproducir'}
+                              >
+                                {sonando ? (
+                                  <Pause className="w-3.5 h-3.5 fill-current" />
+                                ) : (
+                                  <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* Controles de paginación de 50 en 50 para alto rendimiento */}
+                      {(songs.length > 0 ? songs : canciones).length > cancionesPageSize && (
+                        <div className="pt-4 pb-2 flex flex-col sm:flex-row items-center justify-between gap-3 p-4 bg-[#18181a] rounded-2xl border border-white/5 shadow-md">
+                          <span className="text-xs text-gray-400 font-medium">
+                            Mostrando <strong className="text-white">{Math.min(cancionesPageSize, (songs.length > 0 ? songs : canciones).length)}</strong> de <strong className="text-emerald-400">{(songs.length > 0 ? songs : canciones).length}</strong> canciones
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setCancionesPageSize((prev) => prev + 50)}
+                              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow active:scale-95 flex items-center gap-1.5"
+                            >
+                              <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                              <span>Cargar 50 más</span>
+                            </button>
+                            <button
+                              onClick={() => setCancionesPageSize((songs.length > 0 ? songs : canciones).length)}
+                              className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition border border-white/10 active:scale-95"
+                            >
+                              Mostrar todas ({(songs.length > 0 ? songs : canciones).length})
                             </button>
                           </div>
                         </div>
-                      );
-                    })
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -3078,13 +3907,15 @@ USING (bucket_id = 'musica');`;
                       {folders.length} carpetas organizadas • Toca cualquier carpeta para abrirla
                     </p>
                   </div>
-                  <button
-                    onClick={() => setShowUploadModal(true)}
-                    className="px-3.5 py-2 rounded-full bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
-                  >
-                    <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                    <span>+ Subir a Carpeta</span>
-                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => setShowUploadModal(true)}
+                      className="px-3.5 py-2 rounded-full bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
+                    >
+                      <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                      <span>+ Subir a Carpeta</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
@@ -3338,61 +4169,59 @@ USING (bucket_id = 'musica');`;
                 <h2 className="text-2xl font-black text-white">Tu biblioteca</h2>
                 <p className="text-xs text-blue-400 font-medium">Música propia subida</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => multiFileInputRef.current?.click()}
-                  className="px-3 py-1.5 rounded-full bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
-                  title="Subir múltiples archivos MP3"
-                >
-                  <Music className="w-3.5 h-3.5" />
-                  <span>Subir múltiples MP3</span>
-                </button>
-                <button
-                  onClick={() => folderInputRef.current?.click()}
-                  className="px-3 py-1.5 rounded-full bg-[#2A2A2A] hover:bg-[#333333] border border-white/10 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
-                  title="Subir carpeta entera de música"
-                >
-                  <Folder className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Subir carpeta</span>
-                </button>
-                <button
-                  onClick={() => setShowUploadModal(true)}
-                  className="px-3 py-1.5 rounded-full bg-[#1ED760] hover:bg-[#1db954] text-black font-bold text-xs flex items-center gap-1 shadow active:scale-95 transition"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Con IA</span>
-                </button>
-              </div>
+              {isAdmin && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => multiFileInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-full bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
+                    title="Subir múltiples archivos MP3"
+                  >
+                    <Music className="w-3.5 h-3.5" />
+                    <span>Subir múltiples MP3</span>
+                  </button>
+                  <button
+                    onClick={() => folderInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-full bg-[#2A2A2A] hover:bg-[#333333] border border-white/10 text-white font-bold text-xs flex items-center gap-1.5 shadow active:scale-95 transition"
+                    title="Subir carpeta entera de música"
+                  >
+                    <Folder className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Subir carpeta</span>
+                  </button>
+                  <button
+                    onClick={() => setShowUploadModal(true)}
+                    className="px-3 py-1.5 rounded-full bg-[#1ED760] hover:bg-[#1db954] text-black font-bold text-xs flex items-center gap-1 shadow active:scale-95 transition"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Con IA</span>
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Tarjeta de estado de sesión admin */}
+            {/* Tarjeta de estado de sesión */}
             <div className="p-3 bg-[#1C1C1E] border border-white/10 rounded-xl flex items-center justify-between">
               <div className="flex items-center gap-2.5 min-w-0">
-                <ShieldCheck className="w-5 h-5 text-blue-400 shrink-0" />
+                <ShieldCheck className={`w-5 h-5 shrink-0 ${isAdmin ? 'text-amber-400' : 'text-blue-400'}`} />
                 <div className="min-w-0">
-                  <p className="text-xs font-bold text-white">
-                    {user ? user.email : 'Modo Visitante'}
+                  <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>{user.email}</span>
+                    {isAdmin && (
+                      <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-bold">
+                        Admin
+                      </span>
+                    )}
                   </p>
                   <p className="text-[11px] text-gray-400">
-                    {user ? 'Sesión de Administrador iniciada' : 'Inicia sesión para administrar archivos'}
+                    {isAdmin ? 'Sesión de Administrador con acceso completo' : 'Sesión de usuario activa (Solo lectura y reproducción)'}
                   </p>
                 </div>
               </div>
-              {user ? (
-                <button
-                  onClick={handleLogout}
-                  className="px-2.5 py-1 text-[11px] font-semibold bg-red-950/60 text-red-300 border border-red-500/30 rounded-lg hover:bg-red-900/60 transition"
-                >
-                  Cerrar
-                </button>
-              ) : (
-                <button
-                  onClick={() => setShowLoginModal(true)}
-                  className="px-2.5 py-1 text-[11px] font-semibold bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition"
-                >
-                  Ingresar
-                </button>
-              )}
+              <button
+                onClick={handleLogout}
+                className="px-2.5 py-1 text-[11px] font-semibold bg-red-950/60 text-red-300 border border-red-500/30 rounded-lg hover:bg-red-900/60 transition"
+              >
+                Cerrar Sesión
+              </button>
             </div>
 
             {/* Lista de canciones del usuario */}
@@ -3428,24 +4257,28 @@ USING (bucket_id = 'musica');`;
                       </div>
 
                       <div className="flex items-center gap-1 sm:gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedSongForMenu(song);
-                            setShowSongMenuModal(true);
-                          }}
-                          className="p-1.5 text-gray-400 hover:text-white rounded-lg transition active:scale-90"
-                          title="Opciones (Mover a carpeta)"
-                        >
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={(e) => solicitarEliminarCancion(song, e)}
-                          className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
-                          title="Eliminar canción"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {isAdmin && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedSongForMenu(song);
+                                setShowSongMenuModal(true);
+                              }}
+                              className="p-1.5 text-gray-400 hover:text-white rounded-lg transition active:scale-90"
+                              title="Opciones (Mover a carpeta)"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={(e) => solicitarEliminarCancion(song, e)}
+                              className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
+                              title="Eliminar canción"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -3466,26 +4299,28 @@ USING (bucket_id = 'musica');`;
               ) : (
                 <div className="p-8 text-center bg-[#181818] rounded-2xl border border-white/5 space-y-3">
                   <Music className="w-10 h-10 text-gray-500 mx-auto" />
-                  <p className="text-sm font-bold text-white">Aún no has subido canciones</p>
+                  <p className="text-sm font-bold text-white">Aún no hay canciones en tu biblioteca</p>
                   <p className="text-xs text-gray-400 max-w-sm mx-auto">
-                    Selecciona múltiples archivos MP3 o una carpeta completa para reproducirlos aquí.
+                    {isAdmin ? 'Selecciona múltiples archivos MP3 o una carpeta completa para cargarlos aquí.' : 'El administrador agregará música a tu biblioteca próximamente.'}
                   </p>
-                  <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
-                    <button
-                      onClick={() => multiFileInputRef.current?.click()}
-                      className="px-4 py-2 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-bold text-xs rounded-full shadow-lg flex items-center gap-2 active:scale-95 transition"
-                    >
-                      <Music className="w-4 h-4" />
-                      <span>Subir múltiples MP3</span>
-                    </button>
-                    <button
-                      onClick={() => folderInputRef.current?.click()}
-                      className="px-4 py-2 bg-[#282828] hover:bg-[#333333] border border-white/10 text-white font-bold text-xs rounded-full flex items-center gap-2 active:scale-95 transition"
-                    >
-                      <Folder className="w-4 h-4 text-blue-400" />
-                      <span>Subir carpeta</span>
-                    </button>
-                  </div>
+                  {isAdmin && (
+                    <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+                      <button
+                        onClick={() => multiFileInputRef.current?.click()}
+                        className="px-4 py-2 bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 text-white font-bold text-xs rounded-full shadow-lg flex items-center gap-2 active:scale-95 transition"
+                      >
+                        <Music className="w-4 h-4" />
+                        <span>Subir múltiples MP3</span>
+                      </button>
+                      <button
+                        onClick={() => folderInputRef.current?.click()}
+                        className="px-4 py-2 bg-[#282828] hover:bg-[#333333] border border-white/10 text-white font-bold text-xs rounded-full flex items-center gap-2 active:scale-95 transition"
+                      >
+                        <Folder className="w-4 h-4 text-blue-400" />
+                        <span>Subir carpeta</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -3623,20 +4458,22 @@ USING (bucket_id = 'musica');`;
                 )}
               </button>
 
-              {/* 6. Botón: Agregar a cualquier carpeta desde el reproductor */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (currentSong) {
-                    setSongToAddToFolder(currentSong);
-                    setShowAddToFolderModal(true);
-                  }
-                }}
-                className="p-1.5 sm:p-2 rounded-full bg-white/10 hover:bg-white/20 text-emerald-400 hover:text-white transition active:scale-90 shadow-sm"
-                title="Agregar canción actual a cualquier carpeta"
-              >
-                <FolderPlus className="w-4 h-4 sm:w-4.5 sm:h-4.5 stroke-[2.2]" />
-              </button>
+              {/* 6. Botón: Agregar a cualquier carpeta desde el reproductor (Solo Admin) */}
+              {isAdmin && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (currentSong) {
+                      setSongToAddToFolder(currentSong);
+                      setShowAddToFolderModal(true);
+                    }
+                  }}
+                  className="p-1.5 sm:p-2 rounded-full bg-white/10 hover:bg-white/20 text-emerald-400 hover:text-white transition active:scale-90 shadow-sm"
+                  title="Agregar canción actual a cualquier carpeta"
+                >
+                  <FolderPlus className="w-4 h-4 sm:w-4.5 sm:h-4.5 stroke-[2.2]" />
+                </button>
+              )}
 
               {/* 7. Botón: Cambiar música directamente desde aquí */}
               <button
@@ -3728,22 +4565,24 @@ USING (bucket_id = 'musica');`;
           <span className="text-xs">Tu biblioteca</span>
         </button>
 
-        {/* Tab 4: Crear (+ Subir Canción con IA) */}
-        <button
-          onClick={() => {
-            setShowUploadModal(true);
-          }}
-          className="flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-pink-400 transition font-semibold py-1"
-        >
-          <Plus className="w-6 h-6 stroke-[2.2] text-pink-400" />
-          <span className="text-xs text-pink-300 font-bold">Subir MP3</span>
-        </button>
+        {/* Tab 4: Crear (+ Subir Canción con IA - Solo Administrador) */}
+        {isAdmin && (
+          <button
+            onClick={() => {
+              setShowUploadModal(true);
+            }}
+            className="flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-pink-400 transition font-semibold py-1"
+          >
+            <Plus className="w-6 h-6 stroke-[2.2] text-pink-400" />
+            <span className="text-xs text-pink-300 font-bold">Subir MP3</span>
+          </button>
+        )}
       </footer>
 
       {/* ==========================================
-          MODAL: SUBIR CANCIÓN CON DEEPSEEK IA
+          MODAL: SUBIR CANCIÓN CON DEEPSEEK IA (Solo Administrador)
           ========================================== */}
-      {showUploadModal && (
+      {showUploadModal && isAdmin && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#1E1E1E] border border-[#383838] rounded-2xl w-full max-w-lg p-6 shadow-2xl relative max-h-[92vh] overflow-y-auto">
             <button
@@ -4201,7 +5040,7 @@ USING (bucket_id = 'musica');`;
               </div>
               <div className="min-w-0 pr-6">
                 <h3 className="text-lg sm:text-xl font-black text-white truncate">
-                  Publicar FINANCIERA AARON
+                  Publicar {appName}
                 </h3>
                 <p className="text-xs text-blue-400 font-medium">
                   Tu propia URL pública independiente de Google AI Studio para Android
@@ -4336,7 +5175,7 @@ USING (bucket_id = 'musica');`;
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-white text-sm flex items-center gap-1.5">
                       <Smartphone className="w-4 h-4 text-emerald-400" />
-                      <span>Cómo instalar FINANCIERA AARON en Android</span>
+                      <span>Cómo instalar {appName} en Android</span>
                     </span>
                     <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold">
                       Icono Propio
@@ -4360,7 +5199,7 @@ USING (bucket_id = 'musica');`;
                       <span className="w-5 h-5 rounded-full bg-emerald-600/30 text-emerald-300 font-bold flex items-center justify-center shrink-0 text-[10px]">2</span>
                       <div>
                         <p className="font-semibold text-white">Toca el banner o menú (⋮):</p>
-                        <p className="mt-0.5">Verás un aviso inferior que dice <strong className="text-emerald-400">&quot;Agregar FINANCIERA AARON a la pantalla principal&quot;</strong>. Si no aparece, toca los <strong className="text-white">tres puntos verticales (⋮)</strong> arriba a la derecha en Chrome.</p>
+                        <p className="mt-0.5">Verás un aviso inferior que dice <strong className="text-emerald-400">&quot;Agregar {appName} a la pantalla principal&quot;</strong>. Si no aparece, toca los <strong className="text-white">tres puntos verticales (⋮)</strong> arriba a la derecha en Chrome.</p>
                       </div>
                     </div>
 
@@ -4376,7 +5215,7 @@ USING (bucket_id = 'musica');`;
                       <span className="w-5 h-5 rounded-full bg-emerald-600/30 text-emerald-300 font-bold flex items-center justify-center shrink-0 text-[10px]">4</span>
                       <div>
                         <p className="font-semibold text-white">¡Listo! Acceso directo con su propio icono:</p>
-                        <p className="mt-0.5 text-emerald-300 font-medium">Se creará el icono de FINANCIERA AARON en la pantalla de inicio de tu celular. Al tocarlo, se abrirá a pantalla completa sin barra de direcciones, sin Google AI Studio y con reproducción de fondo.</p>
+                        <p className="mt-0.5 text-emerald-300 font-medium">Se creará el icono de {appName} en la pantalla de inicio de tu celular. Al tocarlo, se abrirá a pantalla completa sin barra de direcciones, sin Google AI Studio y con reproducción de fondo.</p>
                       </div>
                     </div>
                   </div>
@@ -4512,24 +5351,26 @@ USING (bucket_id = 'musica');`;
 
             {/* Opciones de la Canción */}
             <div className="space-y-1.5">
-              {/* Opción 1: Mover a carpeta */}
-              <button
-                onClick={() => {
-                  setShowSongMenuModal(false);
-                  setShowMoveModal(true);
-                }}
-                className="w-full flex items-center gap-3.5 p-3 rounded-2xl bg-[#252528] hover:bg-[#303035] text-left transition active:scale-[0.99] border border-white/5"
-              >
-                <div className="w-10 h-10 rounded-xl bg-[#1ED760]/20 text-[#1ED760] flex items-center justify-center shrink-0">
-                  <FolderCheck className="w-5 h-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-white">Mover a carpeta</p>
-                  <p className="text-xs text-gray-400">Asignar a Perreale, los 2000&apos;, buchonass, etc.</p>
-                </div>
-              </button>
+              {/* Opción 1: Mover a carpeta (Solo Admin) */}
+              {isAdmin && (
+                <button
+                  onClick={() => {
+                    setShowSongMenuModal(false);
+                    setShowMoveModal(true);
+                  }}
+                  className="w-full flex items-center gap-3.5 p-3 rounded-2xl bg-[#252528] hover:bg-[#303035] text-left transition active:scale-[0.99] border border-white/5"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-[#1ED760]/20 text-[#1ED760] flex items-center justify-center shrink-0">
+                    <FolderCheck className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-white">Mover a carpeta</p>
+                    <p className="text-xs text-gray-400">Asignar a Perreale, los 2000&apos;, buchonass, etc.</p>
+                  </div>
+                </button>
+              )}
 
-              {/* Opción 2: Favoritos */}
+              {/* Opción 2: Favoritos (Todos los usuarios) */}
               <button
                 onClick={() => {
                   toggleFavorite(selectedSongForMenu);
@@ -4549,7 +5390,7 @@ USING (bucket_id = 'musica');`;
                 </div>
               </button>
 
-              {/* Opción 3: Reproducir ahora */}
+              {/* Opción 3: Reproducir ahora (Todos los usuarios) */}
               <button
                 onClick={() => {
                   seleccionarCancion(selectedSongForMenu);
@@ -4567,24 +5408,26 @@ USING (bucket_id = 'musica');`;
                 </div>
               </button>
 
-              {/* Opción 4: Eliminar canción */}
-              <button
-                onClick={() => {
-                  const s = selectedSongForMenu;
-                  setShowSongMenuModal(false);
-                  setSelectedSongForMenu(null);
-                  solicitarEliminarCancion(s);
-                }}
-                className="w-full flex items-center gap-3.5 p-3 rounded-2xl bg-red-950/30 hover:bg-red-950/60 text-left transition active:scale-[0.99] border border-red-500/30"
-              >
-                <div className="w-10 h-10 rounded-xl bg-red-600/20 text-red-400 flex items-center justify-center shrink-0">
-                  <Trash2 className="w-5 h-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-red-300">Eliminar canción</p>
-                  <p className="text-xs text-red-200/70">Quitar de carpetas y base de datos</p>
-                </div>
-              </button>
+              {/* Opción 4: Eliminar canción (Solo Admin) */}
+              {isAdmin && (
+                <button
+                  onClick={() => {
+                    const s = selectedSongForMenu;
+                    setShowSongMenuModal(false);
+                    setSelectedSongForMenu(null);
+                    solicitarEliminarCancion(s);
+                  }}
+                  className="w-full flex items-center gap-3.5 p-3 rounded-2xl bg-red-950/30 hover:bg-red-950/60 text-left transition active:scale-[0.99] border border-red-500/30"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-red-600/20 text-red-400 flex items-center justify-center shrink-0">
+                    <Trash2 className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-red-300">Eliminar canción</p>
+                    <p className="text-xs text-red-200/70">Quitar de carpetas y base de datos</p>
+                  </div>
+                </button>
+              )}
             </div>
 
             <button
@@ -4601,9 +5444,9 @@ USING (bucket_id = 'musica');`;
       )}
 
       {/* ==========================================
-          MODAL: MOVER A CARPETA (LISTA DE TODAS LAS CARPETAS)
+          MODAL: MOVER A CARPETA (LISTA DE TODAS LAS CARPETAS - Solo Admin)
           ========================================== */}
-      {showMoveModal && selectedSongForMenu && (
+      {showMoveModal && isAdmin && selectedSongForMenu && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-[#1C1C1E] border border-[#3A3A3C] rounded-3xl w-full max-w-lg p-6 shadow-2xl relative max-h-[88vh] flex flex-col">
             <button
@@ -4699,9 +5542,9 @@ USING (bucket_id = 'musica');`;
       )}
 
       {/* ==========================================
-          MODAL: CONFIRMACIÓN PARA ELIMINAR CANCIÓN
+          MODAL: CONFIRMACIÓN PARA ELIMINAR CANCIÓN (Solo Admin)
           ========================================== */}
-      {songToDelete && (
+      {songToDelete && isAdmin && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#1C1C1E] border border-red-500/40 rounded-3xl w-full max-w-md p-6 shadow-2xl relative animate-fade-in">
             <button
@@ -4757,9 +5600,9 @@ USING (bucket_id = 'musica');`;
       )}
 
       {/* ==========================================
-          MODAL: CONFIRMACIÓN PARA ELIMINAR CARPETA
+          MODAL: CONFIRMACIÓN PARA ELIMINAR CARPETA (Solo Admin)
           ========================================== */}
-      {folderToDelete && (
+      {folderToDelete && isAdmin && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#1C1C1E] border border-red-500/40 rounded-3xl w-full max-w-md p-6 shadow-2xl relative animate-fade-in">
             <button
@@ -4807,9 +5650,9 @@ USING (bucket_id = 'musica');`;
       )}
 
       {/* ==========================================
-          MODAL: AGREGAR CANCIÓN A CUALQUIER CARPETA (DESDE REPRODUCTOR)
+          MODAL: AGREGAR CANCIÓN A CUALQUIER CARPETA (Solo Admin)
           ========================================== */}
-      {showAddToFolderModal && (
+      {showAddToFolderModal && isAdmin && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#1C1C1E] border border-[#3A3A3C] rounded-2xl w-full max-w-md p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
             <button
@@ -4960,28 +5803,31 @@ USING (bucket_id = 'musica');`;
               {filteredSongs.length === 0 ? (
                 <div className="p-6 text-center text-gray-400 space-y-3">
                   <Music className="w-8 h-8 text-gray-500 mx-auto" />
-                  <p className="text-sm font-semibold text-white">No hay canciones disponibles</p>
-                  <p className="text-xs text-gray-400">Sube tus archivos MP3 o carpetas de música para reproducirlas.</p>
-                  <div className="flex justify-center gap-2 pt-1">
-                    <button
-                      onClick={() => {
-                        setShowChangeSongModal(false);
-                        multiFileInputRef.current?.click();
-                      }}
-                      className="px-3.5 py-1.5 bg-pink-600 text-white rounded-lg text-xs font-bold"
-                    >
-                      Subir múltiples MP3
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowChangeSongModal(false);
-                        folderInputRef.current?.click();
-                      }}
-                      className="px-3.5 py-1.5 bg-[#2A2A2A] text-white rounded-lg text-xs font-bold border border-white/10"
-                    >
-                      Subir Carpeta
-                    </button>
-                  </div>
+                  <p className="text-xs text-gray-400">
+                    {isAdmin ? 'Sube tus archivos MP3 o carpetas de música para reproducirlas.' : 'El administrador agregará más canciones pronto.'}
+                  </p>
+                  {isAdmin && (
+                    <div className="flex justify-center gap-2 pt-1">
+                      <button
+                        onClick={() => {
+                          setShowChangeSongModal(false);
+                          multiFileInputRef.current?.click();
+                        }}
+                        className="px-3.5 py-1.5 bg-pink-600 text-white rounded-lg text-xs font-bold"
+                      >
+                        Subir múltiples MP3
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowChangeSongModal(false);
+                          folderInputRef.current?.click();
+                        }}
+                        className="px-3.5 py-1.5 bg-[#2A2A2A] text-white rounded-lg text-xs font-bold border border-white/10"
+                      >
+                        Subir Carpeta
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 filteredSongs.map((cancion) => {
@@ -5041,9 +5887,9 @@ USING (bucket_id = 'musica');`;
       )}
 
       {/* ==========================================
-          MODAL: AGREGAR MÚSICA DE LA BIBLIOTECA A LA CARPETA ACTUAL
+          MODAL: AGREGAR MÚSICA DE LA BIBLIOTECA A LA CARPETA ACTUAL (Solo Admin)
           ========================================== */}
-      {showAddMusicToCurrentFolderModal && selectedFolder && (
+      {showAddMusicToCurrentFolderModal && isAdmin && selectedFolder && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#1C1C1E] border border-[#3A3A3C] rounded-2xl w-full max-w-lg p-6 shadow-2xl relative max-h-[88vh] flex flex-col">
             <button
@@ -5067,9 +5913,9 @@ USING (bucket_id = 'musica');`;
               </div>
             </div>
 
-            {/* Lista de Canciones para Agregar a la Carpeta */}
+            {/* Lista de Canciones para Agregar a la Carpeta con paginación de 50 */}
             <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {canciones.map((cancion) => {
+              {canciones.slice(0, addMusicModalPageSize).map((cancion) => {
                 const yaEsta = selectedFolder.canciones.some(
                   (c) =>
                     String(c.id) === String(cancion.id) ||
@@ -5122,6 +5968,18 @@ USING (bucket_id = 'musica');`;
                   </div>
                 );
               })}
+
+              {canciones.length > addMusicModalPageSize && (
+                <div className="pt-2 flex items-center justify-center">
+                  <button
+                    onClick={() => setAddMusicModalPageSize((prev) => prev + 50)}
+                    className="w-full py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                    <span>Cargar 50 más ({Math.min(addMusicModalPageSize, canciones.length)} de {canciones.length})</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="mt-3 pt-3 border-t border-white/10 shrink-0 flex justify-end">
@@ -5221,23 +6079,27 @@ USING (bucket_id = 'musica');`;
 
             <div className="text-center min-w-0 px-2 flex-1">
               <p className="text-[10px] sm:text-xs font-bold tracking-widest uppercase text-red-200/80">
-                {selectedFolder ? `Carpeta: ${selectedFolder.titulo}` : 'FINANCIERA AARON'}
+                {selectedFolder ? `Carpeta: ${selectedFolder.titulo}` : appName}
               </p>
               <p className="text-xs sm:text-sm font-black text-white truncate">
                 {currentSong.title || currentSong.titulo}
               </p>
             </div>
 
-            <button
-              onClick={() => {
-                setSongToAddToFolder(currentSong);
-                setShowAddToFolderModal(true);
-              }}
-              className="p-2 -mr-2 rounded-full hover:bg-white/10 active:scale-90 transition text-white/80 hover:text-white"
-              title="Agregar a carpeta"
-            >
-              <MoreVertical className="w-6 h-6" />
-            </button>
+            {isAdmin ? (
+              <button
+                onClick={() => {
+                  setSongToAddToFolder(currentSong);
+                  setShowAddToFolderModal(true);
+                }}
+                className="p-2 -mr-2 rounded-full hover:bg-white/10 active:scale-90 transition text-white/80 hover:text-white"
+                title="Agregar a carpeta"
+              >
+                <MoreVertical className="w-6 h-6" />
+              </button>
+            ) : (
+              <div className="w-10" />
+            )}
           </div>
 
           {/* Contenido Principal con Portada en Grande, Controles y Letras */}
@@ -5416,6 +6278,189 @@ USING (bucket_id = 'musica');`;
               <span className="font-mono text-[11px] text-gray-400 tabular-nums w-8 text-right">
                 {Math.round((isMuted ? 0 : volume) * 100)}%
               </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==========================================
+          MODAL: AJUSTES ADMINISTRATIVOS (SOLO ADMIN)
+          ========================================== */}
+      {showAdminSettingsModal && isAdmin && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-[#1C1C1E] border border-amber-500/40 rounded-3xl w-full max-w-xl p-5 sm:p-7 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowAdminSettingsModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white p-1.5 rounded-xl bg-[#2C2C2E] transition active:scale-90"
+              title="Cerrar ajustes"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Header del Modal */}
+            <div className="flex items-center gap-3.5 mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center shadow-lg shrink-0">
+                <ShieldCheck className="w-6 h-6 stroke-[2.2]" />
+              </div>
+              <div className="min-w-0 pr-6">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg sm:text-xl font-black text-white truncate">
+                    Ajustes Administrativos
+                  </h3>
+                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    Admin
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 truncate mt-0.5">
+                  Conectado como: <strong className="text-white">{user?.email}</strong>
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              {/* SECCIÓN 1: CAMBIAR NOMBRE DE LA APP */}
+              <div className="p-4 rounded-2xl bg-[#242426] border border-white/5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-amber-400" />
+                    <span>Nombre de la Aplicación</span>
+                  </h4>
+                  <span className="text-[11px] text-gray-400 font-mono">Persistente</span>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Modifica el nombre o título de la aplicación. Se mantendrá guardado en este dispositivo al recargar.
+                </p>
+                <form onSubmit={guardarNombreApp} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={tempAppName}
+                    onChange={(e) => setTempAppName(e.target.value)}
+                    placeholder={appName || "FINANCIERA AARON"}
+                    className="flex-1 px-3.5 py-2 bg-[#161618] border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-400"
+                  />
+                  <button
+                    type="submit"
+                    onClick={guardarNombreApp}
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs sm:text-sm rounded-xl shadow active:scale-95 transition shrink-0"
+                  >
+                    Guardar Nombre
+                  </button>
+                </form>
+              </div>
+
+              {/* SECCIÓN 2: GESTIÓN DE USUARIOS (KICK / BLOQUEAR) */}
+              <div className="p-4 rounded-2xl bg-[#242426] border border-white/5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <UserX className="w-4 h-4 text-red-400" />
+                    <span>Gestión de Usuarios (Kick / Bloqueo)</span>
+                  </h4>
+                  <button
+                    onClick={cargarUsuariosBloqueados}
+                    disabled={loadingBlockedUsers}
+                    className="text-xs text-gray-400 hover:text-white flex items-center gap-1 transition"
+                    title="Actualizar lista de bloqueados"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${loadingBlockedUsers ? 'animate-spin' : ''}`} />
+                    <span>Actualizar</span>
+                  </button>
+                </div>
+
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  Escribe el correo de un usuario para agregarlo a la tabla <code className="font-mono text-red-400 bg-black/40 px-1 py-0.5 rounded">blocked_users</code> de Supabase. Al intentar hacer Login, su sesión se cerrará de inmediato con el aviso <em>&quot;Acceso denegado por el administrador&quot;</em>.
+                </p>
+
+                {/* Formulario para bloquear usuario */}
+                <form onSubmit={bloquearUsuario} className="flex gap-2">
+                  <input
+                    type="email"
+                    required
+                    value={newBlockEmail}
+                    onChange={(e) => setNewBlockEmail(e.target.value)}
+                    placeholder="usuario@correo.com"
+                    className="flex-1 px-3.5 py-2 bg-[#161618] border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-red-400"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-lg shadow-red-600/25 active:scale-95 transition flex items-center gap-1.5 shrink-0"
+                  >
+                    <UserX className="w-4 h-4" />
+                    <span>Bloquear (Kick)</span>
+                  </button>
+                </form>
+
+                {/* Lista de usuarios bloqueados */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between text-xs font-bold text-gray-400 uppercase tracking-wider">
+                    <span>Usuarios Bloqueados ({blockedUsers.length})</span>
+                  </div>
+
+                  {loadingBlockedUsers ? (
+                    <div className="p-4 text-center text-xs text-gray-400 flex items-center justify-center gap-2">
+                      <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                      <span>Consultando tabla blocked_users en Supabase...</span>
+                    </div>
+                  ) : blockedUsers.length === 0 ? (
+                    <div className="p-4 rounded-xl bg-black/20 text-center border border-white/5 text-xs text-gray-400">
+                      No hay usuarios bloqueados en este momento.
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {blockedUsers.map((item) => (
+                        <div
+                          key={item.email}
+                          className="flex items-center justify-between p-2.5 rounded-xl bg-[#1c1c1e] border border-white/5"
+                        >
+                          <div className="min-w-0 pr-2">
+                            <p className="text-xs font-bold text-red-300 truncate">{item.email}</p>
+                            <p className="text-[10px] text-gray-500">
+                              Bloqueado: {item.created_at ? new Date(item.created_at).toLocaleString() : 'Recientemente'}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => desbloquearUsuario(item.email)}
+                            className="px-2.5 py-1 text-xs font-semibold bg-white/10 hover:bg-emerald-600 text-gray-200 hover:text-white rounded-lg transition active:scale-95 shrink-0"
+                          >
+                            Desbloquear
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Botón de respaldo SQL para crear tabla blocked_users */}
+                <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                  <span className="text-[11px] text-gray-500">¿Tabla no configurada en Supabase?</span>
+                  <button
+                    onClick={copyBlockedSql}
+                    className="text-[11px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>{sqlCopiedBlocked ? '¡SQL Copiado!' : 'Copiar SQL para blocked_users'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* SECCIÓN 3: CERRAR SESIÓN */}
+              <div className="pt-2 flex justify-between items-center border-t border-white/10">
+                <button
+                  onClick={() => setShowAdminSettingsModal(false)}
+                  className="px-4 py-2 text-xs font-bold bg-[#282828] hover:bg-[#333333] text-gray-300 rounded-xl transition"
+                >
+                  Cerrar
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAdminSettingsModal(false);
+                    handleLogout();
+                  }}
+                  className="px-4 py-2 text-xs font-bold bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/40 rounded-xl transition flex items-center gap-1.5 active:scale-95"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Cerrar Sesión</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
