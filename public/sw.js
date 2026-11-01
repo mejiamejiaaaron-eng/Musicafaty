@@ -1,5 +1,5 @@
-// Service Worker PWA para FINANCIERA AARON
-const CACHE_NAME = 'financiera-aaron-v2';
+// Service Worker PWA para Spotyy_AA
+const CACHE_NAME = 'spotyy-aa-v1';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

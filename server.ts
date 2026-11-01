@@ -9,7 +9,8 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  // En el entorno de AI Studio el dev server debe correr estrictamente en el puerto 3000
+  const PORT = 3000;
 
   app.use(express.json());
 
@@ -158,7 +159,7 @@ async function startServer() {
                 {
                   role: 'system',
                   content:
-                    'Eres el asistente experto de FINANCIERA AARON para identificación musical. Tu tarea es extraer con máxima precisión el NOMBRE EXACTO DE LA CANCIÓN y el NOMBRE DEL ARTISTA O AGRUPACIÓN a partir del nombre del archivo o metadatos proporcionados. Si el artista o canción son conocidos (ej: regional mexicano, corridos tumbados, reggaetón, baladas, pop), normaliza sus nombres oficiales con ortografía impecable. NUNCA respondas "Desconocido" si el artista se deduce del nombre o título. Responde ÚNICAMENTE un JSON con: {"titulo": "...", "artista": "...", "genero": "...", "sugerenciaCarpeta": "buchonass" | "perreale" | "tus_me_gusta" | "lob_songs" | "los_2000" | "grwm" | "baladas" | "la_reina", "descripcionPortada": "aesthetic album cover art prompt in english"}'
+                    'Eres el asistente experto de Spotyy_AA para identificación musical. Tu tarea es extraer con máxima precisión el NOMBRE EXACTO DE LA CANCIÓN y el NOMBRE DEL ARTISTA O AGRUPACIÓN a partir del nombre del archivo o metadatos proporcionados. Si el artista o canción son conocidos (ej: regional mexicano, corridos tumbados, reggaetón, baladas, pop), normaliza sus nombres oficiales con ortografía impecable. NUNCA respondas "Desconocido" si el artista se deduce del nombre o título. Responde ÚNICAMENTE un JSON con: {"titulo": "...", "artista": "...", "genero": "...", "sugerenciaCarpeta": "buchonass" | "perreale" | "tus_me_gusta" | "lob_songs" | "los_2000" | "grwm" | "baladas" | "la_reina", "descripcionPortada": "aesthetic album cover art prompt in english"}'
                 },
                 {
                   role: 'user',
@@ -202,7 +203,7 @@ async function startServer() {
             }
           });
 
-          const geminiPrompt = `Eres el identificador musical de FINANCIERA AARON.
+          const geminiPrompt = `Eres el identificador musical de Spotyy_AA.
 Analiza este audio:
 - Nombre de archivo: "${filename}"
 - ID3 Título previo: "${id3Title}"
@@ -250,7 +251,7 @@ Devuelve ÚNICAMENTE un JSON válido con las llaves:
         let genero = 'Música';
         let sugerenciaCarpeta = folderId || 'tus_me_gusta';
 
-        // Catálogo de artistas reconocidos frecuentemente en FINANCIERA AARON
+        // Catálogo de artistas reconocidos frecuentemente en Spotyy_AA
         const artistasConocidos: Array<{
           nombres: string[];
           artistaOficial: string;

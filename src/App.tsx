@@ -209,16 +209,26 @@ export default function App() {
   // Nombre de la aplicación (configurable por el Admin y persistente en localStorage)
   const [appName, setAppName] = useState<string>(() => {
     try {
-      return localStorage.getItem('appName') || localStorage.getItem('fa_app_title_v1') || 'FINANCIERA AARON';
+      const stored = localStorage.getItem('appName') || localStorage.getItem('fa_app_title_v1');
+      if (!stored || stored === 'FINANCIERA AARON' || stored === 'Financiera Aaron' || stored === 'JAaron Music') {
+        localStorage.setItem('appName', 'Spotyy_AA');
+        localStorage.setItem('fa_app_title_v1', 'Spotyy_AA');
+        return 'Spotyy_AA';
+      }
+      return stored;
     } catch {
-      return 'FINANCIERA AARON';
+      return 'Spotyy_AA';
     }
   });
   const [tempAppName, setTempAppName] = useState<string>(() => {
     try {
-      return localStorage.getItem('appName') || localStorage.getItem('fa_app_title_v1') || 'FINANCIERA AARON';
+      const stored = localStorage.getItem('appName') || localStorage.getItem('fa_app_title_v1');
+      if (!stored || stored === 'FINANCIERA AARON' || stored === 'Financiera Aaron' || stored === 'JAaron Music') {
+        return 'Spotyy_AA';
+      }
+      return stored;
     } catch {
-      return 'FINANCIERA AARON';
+      return 'Spotyy_AA';
     }
   });
 
@@ -2373,7 +2383,12 @@ WITH CHECK (true);`;
         audioEl.load();
         const p = audioEl.play();
         if (p !== undefined) {
-          p.then(() => setIsPlaying(true)).catch((err) => console.warn('Error en autoplay:', err));
+          p.then(() => {
+            setIsPlaying(true);
+            if ('mediaSession' in navigator) {
+              navigator.mediaSession.playbackState = 'playing';
+            }
+          }).catch((err) => console.warn('Error en autoplay:', err));
         }
       }
     }
@@ -2392,10 +2407,18 @@ WITH CHECK (true);`;
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
+      if ('mediaSession' in navigator) {
+        navigator.mediaSession.playbackState = 'paused';
+      }
     } else {
       audioRef.current
         .play()
-        .then(() => setIsPlaying(true))
+        .then(() => {
+          setIsPlaying(true);
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'playing';
+          }
+        })
         .catch((err) => console.warn('Error al reproducir audio:', err));
     }
   };
@@ -2522,25 +2545,17 @@ WITH CHECK (true);`;
     reproducirCancionDirecta(prevSong);
   };
 
-  // Manejador del final de la pista (onEnded): Soporta Repetir 1, Repetir Todo y Aleatorio
+  // Manejador del final de la pista (onEnded): Soporta Repetir 1 y Reproducción Continua (Autoplay)
   const handleAudioEnded = () => {
     if (repeatMode === 'one') {
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
         audioRef.current.play().catch((err) => console.warn('Error repitiendo canción:', err));
       }
-    } else if (repeatMode === 'all') {
-      reproducirSiguiente();
-    } else {
-      // Modo 'off'
-      const playlist = obtenerListaActiva();
-      const currentIndex = playlist.findIndex((s) => String(s.id) === String(currentSong?.id));
-      if (isShuffle || currentIndex < playlist.length - 1) {
-        reproducirSiguiente();
-      } else {
-        setIsPlaying(false);
-      }
+      return;
     }
+    // Reproducción Continua: ejecuta automáticamente la función que reproduce la siguiente canción
+    reproducirSiguiente();
   };
 
   // ==========================================
@@ -2599,9 +2614,20 @@ WITH CHECK (true);`;
 
   const handleTimeUpdate = () => {
     if (audioRef.current) {
-      setCurrentTime(audioRef.current.currentTime);
-      if (audioRef.current.duration && !isNaN(audioRef.current.duration)) {
-        setDuration(audioRef.current.duration);
+      const cur = audioRef.current.currentTime;
+      setCurrentTime(cur);
+      const dur = audioRef.current.duration;
+      if (dur && !isNaN(dur)) {
+        setDuration(dur);
+        if ('mediaSession' in navigator && 'setPositionState' in navigator.mediaSession) {
+          try {
+            navigator.mediaSession.setPositionState({
+              duration: dur,
+              playbackRate: audioRef.current.playbackRate || 1,
+              position: Math.min(cur, dur)
+            });
+          } catch {}
+        }
       }
     }
   };
@@ -2656,6 +2682,148 @@ WITH CHECK (true);`;
       }
     }
   }, [currentSong]);
+
+  // ==========================================
+  // MEDIA SESSION API (CONTROLES EN PANTALLA BLOQUEADA, NOTIFICACIONES Y BLUETOOTH)
+  // ==========================================
+  const reproducirSiguienteRef = useRef(reproducirSiguiente);
+  reproducirSiguienteRef.current = reproducirSiguiente;
+
+  const reproducirAnteriorRef = useRef(reproducirAnterior);
+  reproducirAnteriorRef.current = reproducirAnterior;
+
+  // 1. Configurar manejadores de acción (play, pause, nexttrack, previoustrack, seekbackward, seekforward)
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    try {
+      // Reanudar reproducción
+      navigator.mediaSession.setActionHandler('play', () => {
+        if (audioRef.current) {
+          audioRef.current
+            .play()
+            .then(() => {
+              setIsPlaying(true);
+              if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = 'playing';
+              }
+            })
+            .catch((err) => console.warn('Error al reproducir desde Media Session:', err));
+        }
+      });
+
+      // Pausar reproducción
+      navigator.mediaSession.setActionHandler('pause', () => {
+        if (audioRef.current) {
+          audioRef.current.pause();
+          setIsPlaying(false);
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'paused';
+          }
+        }
+      });
+
+      // Canción anterior (controles Bluetooth o pantalla bloqueada)
+      navigator.mediaSession.setActionHandler('previoustrack', () => {
+        reproducirAnteriorRef.current();
+      });
+
+      // Canción siguiente (controles Bluetooth o pantalla bloqueada)
+      navigator.mediaSession.setActionHandler('nexttrack', () => {
+        reproducirSiguienteRef.current();
+      });
+
+      // Retroceder 10 segundos
+      navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+        const skip = details?.seekOffset || 10;
+        if (audioRef.current) {
+          const newTime = Math.max(audioRef.current.currentTime - skip, 0);
+          audioRef.current.currentTime = newTime;
+          setCurrentTime(newTime);
+        }
+      });
+
+      // Avanzar 10 segundos
+      navigator.mediaSession.setActionHandler('seekforward', (details) => {
+        const skip = details?.seekOffset || 10;
+        if (audioRef.current) {
+          const maxDur = audioRef.current.duration || 999999;
+          const newTime = Math.min(audioRef.current.currentTime + skip, maxDur);
+          audioRef.current.currentTime = newTime;
+          setCurrentTime(newTime);
+        }
+      });
+
+      // Posicionamiento preciso en barra de progreso
+      try {
+        navigator.mediaSession.setActionHandler('seekto', (details) => {
+          if (details?.seekTime !== undefined && audioRef.current) {
+            audioRef.current.currentTime = details.seekTime;
+            setCurrentTime(details.seekTime);
+          }
+        });
+      } catch {}
+
+      // Detener audio
+      try {
+        navigator.mediaSession.setActionHandler('stop', () => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+            setIsPlaying(false);
+            if ('mediaSession' in navigator) {
+              navigator.mediaSession.playbackState = 'none';
+            }
+          }
+        });
+      } catch {}
+    } catch (err) {
+      console.warn('Error al registrar handlers de Media Session:', err);
+    }
+  }, []);
+
+  // 2. Configurar metadatos (título, artista, álbum, carátula) al iniciar o cambiar de canción
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentSong) return;
+
+    try {
+      const songTitle = currentSong.title || currentSong.titulo || 'Canción';
+      const songArtist = currentSong.artist || currentSong.artista || 'Spotyy_AA';
+      const albumName = selectedFolder?.titulo || appName || 'Spotyy_AA';
+      const rawCover = currentSong.cover_url || currentSong.cover || '/icon-512.png';
+
+      let fullCoverUrl = rawCover;
+      try {
+        fullCoverUrl = new URL(rawCover, window.location.origin).href;
+      } catch {}
+
+      if (typeof MediaMetadata !== 'undefined') {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: songTitle,
+          artist: songArtist,
+          album: albumName,
+          artwork: [
+            { src: fullCoverUrl, sizes: '96x96', type: 'image/jpeg' },
+            { src: fullCoverUrl, sizes: '128x128', type: 'image/jpeg' },
+            { src: fullCoverUrl, sizes: '192x192', type: 'image/jpeg' },
+            { src: fullCoverUrl, sizes: '256x256', type: 'image/jpeg' },
+            { src: fullCoverUrl, sizes: '384x384', type: 'image/jpeg' },
+            { src: fullCoverUrl, sizes: '512x512', type: 'image/jpeg' }
+          ]
+        });
+      }
+    } catch (err) {
+      console.warn('Error al actualizar MediaMetadata:', err);
+    }
+  }, [currentSong, selectedFolder, appName]);
+
+  // 3. Sincronizar el estado de reproducción (playbackState)
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    } catch (e) {}
+  }, [isPlaying]);
 
   const listaParaBuscar = songs.length > 0 ? songs : canciones;
   const filteredSongs = listaParaBuscar.filter(
@@ -3291,15 +3459,26 @@ WITH CHECK (true);`;
       className="flex flex-col h-screen w-screen bg-[#121212] text-white font-sans overflow-hidden select-none"
       onContextMenu={(e) => e.preventDefault()}
     >
-      {/* Elemento de Audio Nativo HTML5 */}
+      {/* Elemento de Audio Nativo HTML5 Global para Reproducción en Segundo Plano y Media Session */}
       <audio
         ref={audioRef}
         src={currentSong?.audio_url || currentSong?.url || undefined}
+        preload="auto"
         controlsList="nodownload noplaybackrate"
         onTimeUpdate={handleTimeUpdate}
         onEnded={handleAudioEnded}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
+        onPlay={() => {
+          setIsPlaying(true);
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'playing';
+          }
+        }}
+        onPause={() => {
+          setIsPlaying(false);
+          if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = 'paused';
+          }
+        }}
         className="hidden"
       />
 
@@ -5111,7 +5290,7 @@ WITH CHECK (true);`;
                   </div>
 
                   <p className="text-gray-300 text-[11px]">
-                    Vercel te proporcionará una URL pública HTTPS gratuita (como <code className="text-blue-300 font-mono">https://financiera-aaron.vercel.app</code>) y actualizará la app cada vez que hagas cambios.
+                    Vercel te proporcionará una URL pública HTTPS gratuita (como <code className="text-blue-300 font-mono">https://spotyy-aa.vercel.app</code>) y actualizará la app cada vez que hagas cambios.
                   </p>
 
                   <div className="space-y-2 text-[11px] text-gray-300 pl-1">
@@ -5248,12 +5427,12 @@ WITH CHECK (true);`;
                         <p className="font-semibold text-white">Descarga el paquete compilado (.zip):</p>
                         <p className="mt-0.5 text-gray-300">Ya está generado con HTML, Service Worker, Manifest, iconos PWA y todos los estilos:</p>
                         <a
-                          href="/financiera-aaron-dist.zip"
-                          download="financiera-aaron-dist.zip"
+                          href="/spotyy-aa-dist.zip"
+                          download="spotyy-aa-dist.zip"
                           className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold text-[11px] shadow-md transition active:scale-95"
                         >
                           <Download className="w-3.5 h-3.5" />
-                          <span>Descargar producción financiera-aaron-dist.zip</span>
+                          <span>Descargar producción spotyy-aa-dist.zip</span>
                         </a>
                       </div>
                     </div>
@@ -5279,7 +5458,7 @@ WITH CHECK (true);`;
                       <span className="w-5 h-5 rounded-full bg-teal-600/30 text-teal-300 font-bold flex items-center justify-center shrink-0 text-[10px]">3</span>
                       <div className="flex-1">
                         <p className="font-semibold text-white">Arrastra y suelta el archivo .zip o la carpeta:</p>
-                        <p className="mt-0.5">Suelta el archivo descargado en la zona punteada de Netlify Drop. En 10 segundos te entregará tu URL pública HTTPS (ejemplo: <code className="text-teal-300 font-mono">https://financiera-aaron.netlify.app</code>) permanente y gratuita.</p>
+                        <p className="mt-0.5">Suelta el archivo descargado en la zona punteada de Netlify Drop. En 10 segundos te entregará tu URL pública HTTPS (ejemplo: <code className="text-teal-300 font-mono">https://spotyy-aa.netlify.app</code>) permanente y gratuita.</p>
                       </div>
                     </div>
                   </div>
@@ -6335,7 +6514,7 @@ WITH CHECK (true);`;
                     type="text"
                     value={tempAppName}
                     onChange={(e) => setTempAppName(e.target.value)}
-                    placeholder={appName || "FINANCIERA AARON"}
+                    placeholder={appName || "Spotyy_AA"}
                     className="flex-1 px-3.5 py-2 bg-[#161618] border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-400"
                   />
                   <button

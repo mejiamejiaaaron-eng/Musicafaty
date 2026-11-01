@@ -188,4 +188,4 @@ fs.writeFileSync('public/apple-touch-icon.png', pApple);
 const pFavicon = generatePNG(64, 64, false);
 fs.writeFileSync('public/favicon.png', pFavicon);
 
-console.log('✅ All PNG icons generated successfully for FINANCIERA AARON!');
+console.log('✅ All PNG icons generated successfully for Spotyy_AA!');

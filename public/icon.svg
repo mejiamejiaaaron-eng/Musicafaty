@@ -42,6 +42,5 @@
   <polygon points="256,128 260,138 270,140 262,146 264,156 256,150 248,156 250,146 242,140 252,138" fill="url(#pinkGrad)"/>
 
   <!-- Bottom Arch Text -->
-  <text x="256" y="375" font-family="'Inter', sans-serif" font-size="22" font-weight="800" fill="#1E90FF" text-anchor="middle" letter-spacing="4">FINANCIERA</text>
-  <text x="256" y="400" font-family="'Inter', sans-serif" font-size="16" font-weight="700" fill="#E91E63" text-anchor="middle" letter-spacing="6">AARON</text>
+  <text x="256" y="380" font-family="'Inter', sans-serif" font-size="22" font-weight="800" fill="#1E90FF" text-anchor="middle" letter-spacing="4">Spotyy_AA</text>
 </svg>

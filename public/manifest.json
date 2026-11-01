@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "FINANCIERA AARON",
-  "short_name": "Financiera",
-  "description": "Aplicación web independiente y sistema de gestión de FINANCIERA AARON.",
+  "name": "Spotyy_AA",
+  "short_name": "Spotyy_AA",
+  "description": "Aplicación web independiente y sistema musical Spotyy_AA.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

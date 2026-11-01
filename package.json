@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && python3 -c \"import zipfile, os; zipf = zipfile.ZipFile('public/financiera-aaron-dist.zip', 'w', zipfile.ZIP_DEFLATED); [zipf.write(os.path.join(r, f), os.path.relpath(os.path.join(r, f), 'dist')) for r, d, files in os.walk('dist') for f in files]; zipf.close()\"",
+    "build": "vite build && python3 -c \"import zipfile, os; zipf = zipfile.ZipFile('public/spotyy-aa-dist.zip', 'w', zipfile.ZIP_DEFLATED); [zipf.write(os.path.join(r, f), os.path.relpath(os.path.join(r, f), 'dist')) for r, d, files in os.walk('dist') for f in files]; zipf.close()\"",
     "start": "node server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
