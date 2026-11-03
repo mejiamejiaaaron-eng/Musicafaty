@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { type User } from '@supabase/supabase-js';
 import { supabase, SUPABASE_URL, SUPABASE_KEY } from './supabase.ts';
 import { uploadToR2 } from './r2Client';
@@ -486,6 +486,81 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const coverInputRef = useRef<HTMLInputElement | null>(null);
+
+  // ==========================================
+  // DESBLOQUEO ESTRICTO DE AUDIO PARA iOS (SAFARI / iPHONE / iPAD)
+  // Desbloquea el elemento <audio> y el subsistema de sonido en la primera interacción
+  // para permitir autoplay continuo y reproducción en segundo plano sin bloqueos
+  // ==========================================
+  const isAudioUnlockedRef = useRef<boolean>(false);
+
+  const unlockAudioForIOS = useCallback(() => {
+    if (isAudioUnlockedRef.current) return;
+
+    try {
+      // 1. Play y Pause rápido en silencio sobre el elemento <audio> principal
+      const audioEl = audioRef.current;
+      if (audioEl) {
+        const prevMuted = audioEl.muted;
+        audioEl.muted = true;
+        const playPromise = audioEl.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              audioEl.pause();
+              audioEl.muted = prevMuted;
+              isAudioUnlockedRef.current = true;
+            })
+            .catch(() => {
+              audioEl.muted = prevMuted;
+            });
+        }
+      }
+
+      // 2. Desbloquear Web Audio API (AudioContext) en iOS
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new AudioCtx();
+        }
+        if (audioContextRef.current.state === 'suspended') {
+          audioContextRef.current.resume();
+        }
+        const buffer = audioContextRef.current.createBuffer(1, 1, 22050);
+        const source = audioContextRef.current.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioContextRef.current.destination);
+        source.start(0);
+      }
+
+      isAudioUnlockedRef.current = true;
+    } catch (e) {
+      console.warn('iOS audio unlock warning:', e);
+    }
+  }, []);
+
+  // Escuchar la primera interacción táctil o clic del usuario en pantalla
+  useEffect(() => {
+    const handleFirstInteraction = () => {
+      unlockAudioForIOS();
+      window.removeEventListener('touchstart', handleFirstInteraction);
+      window.removeEventListener('touchend', handleFirstInteraction);
+      window.removeEventListener('click', handleFirstInteraction);
+      window.removeEventListener('pointerdown', handleFirstInteraction);
+    };
+
+    window.addEventListener('touchstart', handleFirstInteraction, { passive: true, once: true });
+    window.addEventListener('touchend', handleFirstInteraction, { passive: true, once: true });
+    window.addEventListener('click', handleFirstInteraction, { passive: true, once: true });
+    window.addEventListener('pointerdown', handleFirstInteraction, { passive: true, once: true });
+
+    return () => {
+      window.removeEventListener('touchstart', handleFirstInteraction);
+      window.removeEventListener('touchend', handleFirstInteraction);
+      window.removeEventListener('click', handleFirstInteraction);
+      window.removeEventListener('pointerdown', handleFirstInteraction);
+    };
+  }, [unlockAudioForIOS]);
 
   const triggerToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
@@ -1024,6 +1099,7 @@ WITH CHECK (true);`;
   // ==========================================
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    unlockAudioForIOS();
     setIsLoggingIn(true);
     setAuthError(null);
 
@@ -2395,6 +2471,7 @@ WITH CHECK (true);`;
   };
 
   const seleccionarCancion = (song: Song) => {
+    unlockAudioForIOS();
     if (currentSong?.id === song.id) {
       togglePlay();
       return;
@@ -3331,7 +3408,7 @@ WITH CHECK (true);`;
   // Si la sesión aún se está verificando inicialmente
   if (sessionLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen w-screen bg-[#121212] text-white select-none">
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] h-[100dvh] w-screen bg-[#121212] text-white select-none safe-top safe-bottom">
         <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-600 to-[#1ED760] flex items-center justify-center shadow-2xl shadow-emerald-500/30 animate-pulse mb-4">
           <Music className="w-7 h-7 text-black stroke-[2.5]" />
         </div>
@@ -3343,7 +3420,7 @@ WITH CHECK (true);`;
   // 1. PANTALLA DE LOGIN: Mostrar solo si NO hay sesión activa (campos en blanco por defecto)
   if (!user) {
     return (
-      <div className="min-h-screen w-screen bg-gradient-to-b from-[#18181b] via-[#121212] to-[#0a0a0a] text-white flex flex-col justify-center items-center p-4 sm:p-6 select-none relative overflow-hidden">
+      <div className="min-h-[100dvh] h-[100dvh] w-screen bg-gradient-to-b from-[#18181b] via-[#121212] to-[#0a0a0a] text-white flex flex-col justify-center items-center p-4 sm:p-6 select-none relative overflow-hidden safe-top safe-bottom">
         {/* Glow decorativo de fondo */}
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
@@ -3456,7 +3533,7 @@ WITH CHECK (true);`;
 
   return (
     <div
-      className="flex flex-col h-screen w-screen bg-[#121212] text-white font-sans overflow-hidden select-none"
+      className="flex flex-col h-[100dvh] w-screen bg-[#121212] text-white font-sans overflow-hidden select-none"
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* Elemento de Audio Nativo HTML5 Global para Reproducción en Segundo Plano y Media Session */}
@@ -3483,9 +3560,9 @@ WITH CHECK (true);`;
       />
 
       {/* ==========================================
-          HEADER SUPERIOR CON NOMBRE DE APP, ROL, AJUSTES ADMIN Y CERRAR SESIÓN
+          HEADER SUPERIOR CON NOMBRE DE APP, ROL, AJUSTES ADMIN Y CERRAR SESIÓN (CON SAFE AREA TOP PARA IPHONE NOTCH)
           ========================================== */}
-      <header className="px-4 py-2.5 flex items-center justify-between border-b border-white/5 bg-[#121212]/95 backdrop-blur-md shrink-0 z-20">
+      <header className="px-4 py-2.5 flex items-center justify-between border-b border-white/5 bg-[#121212]/95 backdrop-blur-md shrink-0 z-20 pt-[calc(env(safe-area-inset-top,0px)+0.625rem)]">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-[#1ED760] flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
             <Music className="w-4 h-4 text-black stroke-[2.5]" />
@@ -4511,7 +4588,7 @@ WITH CHECK (true);`;
           MINI PLAYER FLOTANTE (DONDE SE DA PLAY)
           Con opción de agregar a cualquier carpeta y cambiar música directamente desde aquí
           ========================================== */}
-      <div className="fixed bottom-16 sm:bottom-18 left-2 right-2 sm:left-4 sm:right-4 z-40">
+      <div className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom,0px)+0.5rem)] sm:bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] left-2 right-2 sm:left-4 sm:right-4 z-40">
         <div
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
@@ -4707,7 +4784,7 @@ WITH CHECK (true);`;
           BARRA DE NAVEGACIÓN INFERIOR (MÁS GRANDE Y CÓMODA)
           Inicio, Buscar, Tu biblioteca, Crear
           ========================================== */}
-      <footer className="fixed bottom-0 left-0 right-0 h-16 bg-black border-t border-neutral-900 px-4 flex items-center justify-around z-40 select-none">
+      <footer className="fixed bottom-0 left-0 right-0 h-[calc(4rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] bg-black border-t border-neutral-900 px-4 flex items-center justify-around z-40 select-none">
         {/* Tab 1: Inicio */}
         <button
           onClick={() => {
@@ -6243,11 +6320,11 @@ WITH CHECK (true);`;
           ========================================== */}
       {showExpandedPlayer && currentSong && (
         <div
-          className="fixed inset-0 z-50 bg-gradient-to-b from-[#580816] via-[#20050b] to-[#121212] flex flex-col text-white overflow-y-auto no-scrollbar select-none"
+          className="fixed inset-0 z-50 bg-gradient-to-b from-[#580816] via-[#20050b] to-[#121212] flex flex-col text-white overflow-y-auto no-scrollbar select-none pb-[calc(env(safe-area-inset-bottom,0px)+1.5rem)]"
           style={{ animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}
         >
           {/* Header Superior: Botón Flecha hacia abajo + Título + Opciones */}
-          <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-3.5 bg-[#580816]/70 backdrop-blur-md border-b border-white/5">
+          <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-3.5 bg-[#580816]/70 backdrop-blur-md border-b border-white/5 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]">
             <button
               onClick={() => setShowExpandedPlayer(false)}
               className="p-2 -ml-2 rounded-full hover:bg-white/10 active:scale-90 transition text-white"
